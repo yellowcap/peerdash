@@ -41,6 +41,20 @@ browser, copy the link, and say `/peerdash:join <link>`.
 
 The plugin needs Node.js 20 or later.
 
+### Update the plugin
+
+Run these in a terminal, then start a new Claude Code session:
+
+```bash
+claude plugin marketplace update peerdash
+claude plugin update peerdash@peerdash
+```
+
+The first command gets the latest version from GitHub. The second installs
+it. The `/plugin marketplace update` command inside a session does not always
+fetch the latest version. If `/plugin` still shows an old version, use the
+terminal commands.
+
 ## How it works
 
 ```
