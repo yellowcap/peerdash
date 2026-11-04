@@ -11,19 +11,6 @@ import { CanvasContext, useDocVersion, useSessionState } from "./hooks";
 import { canvases, displayName, liveFlag, roomKey } from "./storage";
 import { downloadSnapshot } from "./files";
 
-const SAMPLE_HTML = `<style>
-  button { font: inherit; padding: 6px 14px; border-radius: 6px; border: 1px solid #999; cursor: pointer; }
-  .n { font-size: 40px; font-weight: 600; margin: 8px 0; }
-</style>
-<div>Shared counter: everyone on this canvas sees the same value.</div>
-<div class="n" id="n">0</div>
-<button id="b">+1</button>
-<script>
-  const show = (s) => (document.getElementById("n").textContent = s.count ?? 0);
-  peerdash.state.on(show);
-  document.getElementById("b").onclick = () => peerdash.state.set("count", (peerdash.state.get("count") ?? 0) + 1);
-</script>`;
-
 export function CanvasPage({ id }: { id: string }) {
   const [doc, setDoc] = useState<CanvasDoc | null>(null);
 
@@ -131,20 +118,11 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
 
   const ctx = useMemo(() => ({ doc, session, author, remoteSelection }), [doc, session, author, remoteSelection]);
 
-  const add = useCallback(
-    (type: "note" | "html") => {
-      const el = document.querySelector(".board")?.getBoundingClientRect();
-      const centre = el ? flow.screenToFlowPosition({ x: el.left + el.width / 2, y: el.top + el.height / 2 }) : { x: 0, y: 0 };
-      const size = type === "html" ? { w: 480, h: 320 } : { w: 280, h: 180 };
-      doc.createWidget(
-        type === "html"
-          ? { type, title: "Shared counter", content: SAMPLE_HTML, x: centre.x - size.w / 2, y: centre.y - size.h / 2 }
-          : { type, content: "", x: centre.x - size.w / 2, y: centre.y - size.h / 2 },
-        author,
-      );
-    },
-    [doc, flow, author],
-  );
+  const addNote = useCallback(() => {
+    const el = document.querySelector(".board")?.getBoundingClientRect();
+    const centre = el ? flow.screenToFlowPosition({ x: el.left + el.width / 2, y: el.top + el.height / 2 }) : { x: 0, y: 0 };
+    doc.createWidget({ type: "note", content: "", x: centre.x - 140, y: centre.y - 90 }, author);
+  }, [doc, flow, author]);
 
   const goLive = () => {
     const k = key ?? generateKey();
@@ -215,8 +193,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
             aria-label="Canvas title"
           />
           <div className="tools">
-            <button onClick={() => add("note")}>+ Note</button>
-            <button onClick={() => add("html")}>+ HTML</button>
+            <button onClick={addNote}>+ Note</button>
             <button className="ghost" onClick={() => undo.undo()} disabled={!undo.canUndo()} title="Undo (Ctrl+Z)">
               ↶
             </button>
