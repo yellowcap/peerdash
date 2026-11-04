@@ -27,6 +27,9 @@ function csp(allow: string[]): string {
     `font-src ${src("data:")}`,
     `media-src ${src("data: blob:")}`,
     `connect-src ${extra || "'none'"}`,
+    // Map and chart libraries start workers from blob: URLs. Workers inherit
+    // this policy, so they get no more network access than the widget.
+    `worker-src ${src("blob:")}`,
   ].join("; ");
 }
 
