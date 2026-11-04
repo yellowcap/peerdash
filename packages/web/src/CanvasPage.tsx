@@ -167,6 +167,25 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
   const link = key ? shareLink(`${location.origin}${location.pathname}`, id, key) : "";
   void version;
 
+  if (!doc.ready && !(live && key)) {
+    // Usually a copied address bar (#/c/<id>): it has no room key, so there is no room to join.
+    return (
+      <div className="centre">
+        <div className="waiting">
+          <h2>This link can’t open the canvas</h2>
+          <p className="muted">
+            This canvas is not in this browser, and the link has no room key. Links copied from the address bar never contain the key.
+          </p>
+          <p className="muted">
+            Ask for the share link: the person who has the canvas opens <strong>Share</strong> and copies the link there. It looks like{" "}
+            <code>…/#/join/…</code>.
+          </p>
+          <a href="#/">Back to my canvases</a>
+        </div>
+      </div>
+    );
+  }
+
   if (!doc.ready) {
     return (
       <div className="centre">
@@ -249,12 +268,10 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
                   <input readOnly value={link} onFocus={(e) => e.target.select()} />
                   <button onClick={() => navigator.clipboard.writeText(link)}>Copy</button>
                 </div>
-                <details className="hint" open={sessionState.peers.every((p) => p.kind !== "agent")}>
-                  <summary>
-                    <strong>Add your chatbot</strong>
-                  </summary>
+                <div className="hint">
+                  <strong>Add your chatbot</strong>
                   <AgentSetup link={link} />
-                </details>
+                </div>
                 <div className="row">
                   <button onClick={newLink} title="Old links stop working">
                     New link
