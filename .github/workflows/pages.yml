@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm typecheck
+      - name: Plugin bundle is up to date
+        run: |
+          pnpm bundle
+          git diff --exit-code -- plugins/peerdash/server || (echo "Run 'pnpm bundle' and commit the result." && exit 1)
+      - name: Plugin and marketplace manifests are valid JSON
+        run: |
+          node -e "for (const f of ['.claude-plugin/marketplace.json','plugins/peerdash/.claude-plugin/plugin.json','plugins/peerdash/.mcp.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))"
+      - run: pnpm build
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: packages/web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5
