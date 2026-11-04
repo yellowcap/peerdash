@@ -1,0 +1,12 @@
+{
+  "name": "peerdash",
+  "owner": { "name": "Daniel Wiesmann" },
+  "metadata": { "description": "peerdash: a live canvas your chatbot edits with you" },
+  "plugins": [
+    {
+      "name": "peerdash",
+      "source": "./plugins/peerdash",
+      "description": "Join a peerdash canvas as a live peer: read it and add or edit notes and HTML widgets while people watch in their browser."
+    }
+  ]
+}

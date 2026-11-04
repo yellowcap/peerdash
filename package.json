@@ -1,0 +1,19 @@
+{
+  "name": "peerdash-workspace",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "dev": "pnpm --filter @peerdash/web dev",
+    "build": "pnpm --filter @peerdash/web build",
+    "bundle": "pnpm --filter @peerdash/peer bundle",
+    "test": "vitest run",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.1.0",
+    "@types/node": "26.6.6"
+  }
+}

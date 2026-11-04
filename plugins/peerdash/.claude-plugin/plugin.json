@@ -1,0 +1,10 @@
+{
+  "name": "peerdash",
+  "version": "0.1.0",
+  "description": "Join a peerdash canvas as a live peer: read it and add or edit notes and HTML widgets while people watch in their browser.",
+  "author": { "name": "Daniel Wiesmann" },
+  "homepage": "https://github.com/yellowcap/peerdash",
+  "repository": "https://github.com/yellowcap/peerdash",
+  "license": "MIT",
+  "keywords": ["canvas", "dashboard", "peer-to-peer", "local-first", "collaboration"]
+}

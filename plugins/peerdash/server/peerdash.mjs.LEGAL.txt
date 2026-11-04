@@ -1,0 +1,4 @@
+Bundled license information:
+
+@noble/secp256k1/index.js:
+  /*! noble-secp256k1 - MIT License (c) 2019 Paul Miller (paulmillr.com) */

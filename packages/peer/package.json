@@ -1,0 +1,22 @@
+{
+  "name": "@peerdash/peer",
+  "private": true,
+  "type": "module",
+  "bin": { "peerdash": "./src/main.ts" },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "bundle": "node build.mjs",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@peerdash/core": "workspace:*",
+    "loro-crdt": "1.17.1",
+    "werift": "0.26.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15"
+  }
+}
