@@ -4,6 +4,7 @@ import { UndoManager } from "loro-crdt";
 import { CanvasDoc, emptyPresence, generateKey, shareLink, SyncSession, type Peer } from "@peerdash/core";
 import { Board } from "./Board";
 import { Inspector } from "./Inspector";
+import { AgentSetup } from "./AgentSetup";
 import { frameFeedback } from "./frame";
 import { acquireTransport } from "./connection";
 import { CanvasContext, useDocVersion, useSessionState } from "./hooks";
@@ -248,10 +249,12 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
                   <input readOnly value={link} onFocus={(e) => e.target.select()} />
                   <button onClick={() => navigator.clipboard.writeText(link)}>Copy</button>
                 </div>
-                <p className="hint">
-                  <strong>Add your chatbot:</strong> in Claude Code with the peerdash plugin, say <code>join {link.slice(0, 32)}…</code> or run{" "}
-                  <code>/peerdash:join</code> with the link.
-                </p>
+                <details className="hint" open={sessionState.peers.every((p) => p.kind !== "agent")}>
+                  <summary>
+                    <strong>Add your chatbot</strong>
+                  </summary>
+                  <AgentSetup link={link} />
+                </details>
                 <div className="row">
                   <button onClick={newLink} title="Old links stop working">
                     New link

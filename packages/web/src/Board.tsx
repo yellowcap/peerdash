@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   Controls,
-  MiniMap,
   ReactFlow,
   useEdgesState,
   useNodesState,
@@ -104,7 +103,6 @@ export function Board({ onSelect }: { onSelect: (ids: string[]) => void }) {
       >
         <Background gap={24} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable className="minimap" />
       </ReactFlow>
     </div>
   );

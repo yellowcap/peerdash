@@ -416,3 +416,69 @@ code {
     z-index: 10;
   }
 }
+
+/* Chatbot setup */
+
+.agent-setup {
+  font-size: 13px;
+  color: var(--ink);
+}
+.agent-setup ol {
+  margin: 8px 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-setup li > .muted {
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
+.agent-setup details {
+  margin-top: 4px;
+  font-size: 12px;
+}
+.agent-setup summary,
+.share-panel details > summary {
+  cursor: pointer;
+}
+.command {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 4px 4px 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.command code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command button {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.small {
+  font-size: 12px;
+}
+.library-agent {
+  margin-top: 40px;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.library-agent h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.share-panel {
+  max-height: calc(100vh - 72px);
+  overflow: auto;
+}

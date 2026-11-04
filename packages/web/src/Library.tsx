@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { CanvasDoc } from "@peerdash/core";
 import { canvases, displayName, liveFlag, roomKey, type StoredCanvas } from "./storage";
 import { importFile } from "./files";
+import { AgentSetup } from "./AgentSetup";
 
 export function Library() {
   const [list, setList] = useState<StoredCanvas[] | null>(null);
@@ -68,6 +69,10 @@ export function Library() {
           </li>
         ))}
       </ul>
+      <section className="library-agent">
+        <h2>Use it with your chatbot</h2>
+        <AgentSetup />
+      </section>
     </div>
   );
 }
