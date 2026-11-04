@@ -3,6 +3,7 @@
 // - `meta` (map): id, title, createdAt, schemaVersion
 // - `widgets` (map): widgetId → map { type, x, y, w, h, z, title, content, allow, createdBy, state (map) }
 // - `edges` (map): edgeId → map { from, to, label }
+// - `comments` (map): commentId → map { widgetId, text, author, createdAt, resolved }
 //
 // Every mutation is a named method that commits exactly one Loro change. The
 // commit message is `{"a": author, "k": action, "v": values}`, so the history
@@ -37,6 +38,18 @@ export interface Edge {
   to: string;
   label: string;
 }
+
+export interface Comment {
+  id: string;
+  widgetId: string;
+  text: string;
+  author: string;
+  /** Unix milliseconds, from the author's clock. */
+  createdAt: number;
+  resolved: boolean;
+}
+
+export const MAX_COMMENT_LENGTH = 2000;
 
 export type WidgetInput = Partial<Omit<Widget, "id" | "createdBy">> & { type: WidgetType };
 export type WidgetPatch = Partial<Pick<Widget, "x" | "y" | "w" | "h" | "z" | "title" | "content" | "allow">>;
@@ -185,6 +198,8 @@ export class CanvasDoc {
     if (gone.size === 0) return;
     for (const id of gone) widgets.delete(id);
     for (const e of this.edges()) if (gone.has(e.from) || gone.has(e.to)) edges.delete(e.id);
+    const comments = this.loro.getMap("comments");
+    for (const c of this.comments()) if (gone.has(c.widgetId)) comments.delete(c.id);
     this.commit(author, "delete", { ids: [...gone] });
   }
 
@@ -213,6 +228,54 @@ export class CanvasDoc {
     if (!(state instanceof LoroMap)) state = m.setContainer("state", new LoroMap());
     (state as LoroMap).set(key, value as never);
     this.commit(author, "state", { id, key });
+  }
+
+  // Comments -----------------------------------------------------------------
+
+  /** Comments, oldest first; only those of one widget when `widgetId` is given. */
+  comments(widgetId?: string): Comment[] {
+    const all = this.loro.getMap("comments").toJSON() as Record<string, Record<string, unknown>>;
+    return Object.entries(all)
+      .map(([id, c]) => ({
+        id,
+        widgetId: String(c.widgetId ?? ""),
+        text: String(c.text ?? ""),
+        author: String(c.author ?? ""),
+        createdAt: Number(c.createdAt ?? 0),
+        resolved: c.resolved === true,
+      }))
+      .filter((c) => !widgetId || c.widgetId === widgetId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  addComment(widgetId: string, text: string, author: string): string {
+    this.requireWidget(widgetId);
+    const body = text.trim().slice(0, MAX_COMMENT_LENGTH);
+    if (!body) throw new Error("A comment needs text.");
+    const id = newId();
+    const m = this.loro.getMap("comments").setContainer(id, new LoroMap());
+    m.set("widgetId", widgetId);
+    m.set("text", body);
+    m.set("author", author);
+    m.set("createdAt", Date.now());
+    m.set("resolved", false);
+    // The text goes into the log too, so peers see it in "changes since".
+    this.commit(author, "comment", { id, widgetId, text: body.slice(0, 200) });
+    return id;
+  }
+
+  resolveComment(id: string, resolved: boolean, author: string) {
+    const m = this.loro.getMap("comments").get(id);
+    if (!(m instanceof LoroMap)) throw new Error(`No comment with id ${id}`);
+    m.set("resolved", resolved);
+    this.commit(author, resolved ? "resolve" : "reopen", { id, widgetId: m.get("widgetId") });
+  }
+
+  deleteComment(id: string, author: string) {
+    const comments = this.loro.getMap("comments");
+    if (comments.get(id) === undefined) return;
+    comments.delete(id);
+    this.commit(author, "uncomment", { id });
   }
 
   // History ------------------------------------------------------------------

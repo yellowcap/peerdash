@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import type { Widget } from "@peerdash/core";
 import { frameFeedback, validOrigins } from "./frame";
 import { useCanvas } from "./hooks";
+import { Comments } from "./Comments";
 
 /** Side panel to edit the selected widget: title, source, network access. */
 export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => void }) {
@@ -71,6 +72,7 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
           ))}
         </div>
       )}
+      <Comments widgetId={widget.id} />
     </aside>
   );
 }

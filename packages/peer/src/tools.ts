@@ -55,6 +55,7 @@ function outline(peer: AgentPeer, c: OpenCanvas) {
       h: w.h,
       created_by: w.createdBy,
       summary: summarise(w),
+      open_comments: doc.comments(w.id).filter((c) => !c.resolved).length,
     })),
     edges: doc.edges(),
   };
@@ -99,7 +100,7 @@ function cleanAllow(list?: string[]): string[] | undefined {
 }
 
 export function createServer(peer: AgentPeer): McpServer {
-  const server = new McpServer({ name: "peerdash", version: "0.1.0" });
+  const server = new McpServer({ name: "peerdash", version: "0.2.0" });
 
   server.registerTool(
     "new_dashboard",
@@ -164,7 +165,7 @@ export function createServer(peer: AgentPeer): McpServer {
     "get_widget",
     {
       title: "Get widget",
-      description: "Full content of one widget (Markdown or HTML), its network allow-list and shared state.",
+      description: "Full content of one widget (Markdown or HTML), its network allow-list, shared state and comment thread.",
       inputSchema: { widget_id: z.string(), dashboard_id: id },
     },
     async ({ widget_id, dashboard_id }) => {
@@ -172,7 +173,7 @@ export function createServer(peer: AgentPeer): McpServer {
         const c = await peer.resolve(dashboard_id);
         const w = c.doc.widget(widget_id);
         if (!w) throw new Error(`No widget with id ${widget_id}`);
-        return ok(peer, c, { note: DATA_NOTE, widget: w, state: c.doc.widgetState(widget_id) });
+        return ok(peer, c, { note: DATA_NOTE, widget: w, state: c.doc.widgetState(widget_id), comments: c.doc.comments(widget_id) });
       } catch (e) {
         return fail(e);
       }
@@ -305,6 +306,44 @@ export function createServer(peer: AgentPeer): McpServer {
         const c = await peer.resolve(dashboard_id);
         const eid = c.doc.connect(from, to, label ?? "", peer.name);
         return ok(peer, c, { edge_id: eid });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "add_comment",
+    {
+      title: "Add comment",
+      description:
+        "Comment on a widget, as people do in the browser. Use it to answer a comment, explain a change, or ask a question about a widget. Keep it short.",
+      inputSchema: { widget_id: z.string(), text: z.string().max(2000), dashboard_id: id },
+    },
+    async ({ widget_id, text, dashboard_id }) => {
+      try {
+        const c = await peer.resolve(dashboard_id);
+        const cid = c.doc.addComment(widget_id, text, peer.name);
+        peer.showActivity(c, "commenting", [widget_id]);
+        return ok(peer, c, { comment_id: cid });
+      } catch (e) {
+        return fail(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "resolve_comment",
+    {
+      title: "Resolve comment",
+      description: "Mark a comment as resolved (or reopen it with resolved: false), for example after you made the change it asks for.",
+      inputSchema: { comment_id: z.string(), resolved: z.boolean().optional().describe("Default true"), dashboard_id: id },
+    },
+    async ({ comment_id, resolved, dashboard_id }) => {
+      try {
+        const c = await peer.resolve(dashboard_id);
+        c.doc.resolveComment(comment_id, resolved ?? true, peer.name);
+        return ok(peer, c, { comment_id, resolved: resolved ?? true });
       } catch (e) {
         return fail(e);
       }

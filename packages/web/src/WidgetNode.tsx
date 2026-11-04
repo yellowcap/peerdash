@@ -41,6 +41,7 @@ function WidgetNodeView({ id, data, selected }: NodeProps & { data: WidgetNodeDa
   const w = data.widget;
   const [editing, setEditing] = useState(false);
   const peers = remoteSelection.get(id) ?? [];
+  const openComments = doc.comments(id).filter((c) => !c.resolved).length;
   const ring = peers[0]?.colour;
 
   return (
@@ -57,6 +58,11 @@ function WidgetNodeView({ id, data, selected }: NodeProps & { data: WidgetNodeDa
       <div className="widget-header">
         <span className="widget-kind">{w.type === "html" ? "HTML" : "Note"}</span>
         <span className="widget-title">{w.title || (w.type === "html" ? "Untitled widget" : "")}</span>
+        {openComments > 0 && (
+          <span className="comment-badge" title={`${openComments} open comment${openComments === 1 ? "" : "s"}`}>
+            💬 {openComments}
+          </span>
+        )}
         {peers.length > 0 && (
           <span className="widget-peers">
             {peers.map((p) => (

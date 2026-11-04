@@ -116,6 +116,20 @@ describe("CanvasDoc", () => {
     expect(d.edges()).toEqual([]);
   });
 
+  it("keeps comments per widget and drops them with the widget", () => {
+    const d = CanvasDoc.create("T", "Ann");
+    const a = d.createWidget({ type: "note" }, "Ann");
+    const b = d.createWidget({ type: "note" }, "Ann");
+    const c1 = d.addComment(a, "  Is this right?  ", "Ann");
+    d.addComment(b, "Nice", "Bob");
+    d.resolveComment(c1, true, "Claude");
+    expect(d.comments(a)).toMatchObject([{ text: "Is this right?", author: "Ann", resolved: true }]);
+    expect(d.changesSince().map((c) => c.action)).toContain("comment");
+    expect(() => d.addComment(a, "   ", "Ann")).toThrow();
+    d.deleteWidgets([a], "Ann");
+    expect(d.comments().map((c) => c.text)).toEqual(["Nice"]);
+  });
+
   it("keeps widget state", () => {
     const d = CanvasDoc.create("T", "Ann");
     const id = d.createWidget({ type: "html" }, "Ann");
