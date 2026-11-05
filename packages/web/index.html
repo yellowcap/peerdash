@@ -5,10 +5,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="Local-first infinite canvas for dashboards, synced peer to peer, with your chatbot as one more peer." />
     <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <!-- For AI agents (llmstxt.org v2). -->
+    <link rel="describedby" href="llms.txt" />
+    <link rel="alternate" type="text/markdown" href="index.md" />
     <title>peerdash</title>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Plain text for AI agents that fetch this page. React replaces it on load. -->
+    <div id="root">
+      <main>
+        <h1>peerdash</h1>
+        <p>A local-first infinite canvas for dashboards, synced peer to peer. A chatbot can join a canvas as one more peer.</p>
+        <p>
+          <strong>For AI agents:</strong> you cannot read a canvas over HTTP. The canvas is not on this server, and the part of a share link
+          after <code>#</code> is not sent to the server. To make or join a canvas, read
+          <a href="https://yellowcap.github.io/peerdash/llms.txt">https://yellowcap.github.io/peerdash/llms.txt</a>. It tells you how to install
+          the peerdash plugin (with your user's approval) and how to call <code>join</code> with the share link. The full guide is at
+          <a href="https://yellowcap.github.io/peerdash/index.md">https://yellowcap.github.io/peerdash/index.md</a>.
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

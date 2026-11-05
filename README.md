@@ -13,6 +13,11 @@ peer: it reads the canvas and adds or changes widgets while you watch.
 
 App: <https://yellowcap.github.io/peerdash/>
 
+For AI agents: <https://yellowcap.github.io/peerdash/llms.txt>
+([llms.txt v2](https://llmstxt.org/)). It tells an agent how to install the
+plugin and how to make or join a canvas. The full guide is
+[`index.md`](packages/web/public/index.md).
+
 ## Use it with Claude Code
 
 Install the plugin from this repository:
