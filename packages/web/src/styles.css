@@ -701,3 +701,261 @@ select {
     font-size: 24px;
   }
 }
+
+/* Add menu */
+
+.add-menu {
+  position: relative;
+  display: flex;
+}
+.add-menu .add-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.add-menu .add-more {
+  padding-inline: 7px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+.add-list {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 230px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+.add-list button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  border-color: transparent;
+  text-align: left;
+  white-space: normal;
+}
+.add-list button:hover,
+.add-list button:focus-visible {
+  background: var(--bg);
+}
+.add-list .muted {
+  font-size: 12px;
+}
+
+/* Typed widgets */
+
+.typed-error {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--error);
+  overflow-wrap: anywhere;
+}
+.heading-view {
+  display: flex;
+  align-items: center;
+}
+.heading-view :is(h1, h2, h3, h4) {
+  margin: 0;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.heading-canvas {
+  height: 100%;
+  padding: 8px 16px;
+}
+.heading-canvas.heading-1 h1 {
+  font-size: 30px;
+}
+.heading-canvas.heading-2 h2 {
+  font-size: 22px;
+}
+.heading-canvas.heading-3 h3 {
+  font-size: 17px;
+}
+.heading-page {
+  padding-top: 12px;
+}
+.heading-page.heading-1 h2 {
+  font-size: 26px;
+}
+.heading-page.heading-2 h3 {
+  font-size: 21px;
+}
+.heading-page.heading-3 h4 {
+  font-size: 17px;
+}
+.heading-page.heading-1 {
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+.heading-input {
+  font-size: 20px;
+  font-weight: 700;
+}
+.widget-heading .widget-body {
+  overflow: hidden;
+}
+
+.metric {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  min-height: 0;
+}
+.metric-label {
+  font-size: 13px;
+  color: var(--muted);
+}
+.metric-value {
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.metric-unit {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.metric-delta {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.metric-delta.good {
+  color: var(--live);
+}
+.metric-delta.bad {
+  color: var(--error);
+}
+.metric-delta.flat {
+  color: var(--muted);
+}
+.sparkline {
+  flex: 1;
+  width: 100%;
+  min-height: 18px;
+  max-height: 48px;
+  margin-top: 4px;
+  color: var(--accent);
+}
+.block .metric {
+  width: min(320px, 100%);
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.block .sparkline {
+  height: 36px;
+  flex: none;
+}
+
+.table-view {
+  height: 100%;
+  overflow: auto;
+}
+.block .table-view {
+  max-height: 560px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.table-view table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.table-view th,
+.table-view td {
+  padding: 4px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.table-view .num {
+  text-align: right;
+}
+.table-view thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  background: var(--surface);
+}
+.table-view th button {
+  width: 100%;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-weight: 600;
+  text-align: inherit;
+}
+.table-view th button:hover {
+  background: var(--bg);
+}
+.table-view tbody tr:hover {
+  background: var(--bg);
+}
+.table-empty {
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.chart-view {
+  position: relative;
+}
+.chart-canvas {
+  height: 100%;
+}
+.chart-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+  background: transparent;
+  color-scheme: normal;
+}
+.chart-loading {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+.chart-error {
+  position: absolute;
+  inset: auto 0 0 0;
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+}
+.block-figure .chart-page {
+  /* content-box: the border goes outside, so the iframe gets the full height. */
+  box-sizing: content-box;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.block-full .chart-page,
+.block-full .table-view {
+  border-radius: 0;
+  border-inline: 0;
+}
+
+/* Inspector JSON editor */
+
+.inspector textarea.code[aria-invalid] {
+  border-color: var(--error);
+}
+.json-error,
+.json-hint {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

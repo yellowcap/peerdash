@@ -1,7 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { UndoManager } from "loro-crdt";
-import { CanvasDoc, DEFAULT_SIZE, emptyPresence, freeSpot, generateKey, pageTarget, shareLink, SyncSession, type Layout, type Peer } from "@peerdash/core";
+import {
+  CanvasDoc,
+  DEFAULT_SIZE,
+  emptyPresence,
+  freeSpot,
+  generateKey,
+  isTypedWidget,
+  pageTarget,
+  shareLink,
+  spotInView,
+  STARTER_CONTENT,
+  SyncSession,
+  type Layout,
+  type Peer,
+  type WidgetType,
+} from "@peerdash/core";
+import { AddMenu } from "./AddMenu";
 import { Board } from "./Board";
 import { blocksInView, PageView } from "./PageView";
 import { LayoutSelect } from "./LayoutSelect";
@@ -133,19 +149,23 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
     session?.setPresence({ selectedIds: [] });
   }, [layout, session]);
 
-  const addNote = useCallback(() => {
+  const addWidget = useCallback((type: WidgetType) => {
+    const content = isTypedWidget(type) ? STARTER_CONTENT[type] : "";
+    const size = DEFAULT_SIZE[type];
     if (doc.layout === "page") {
       const target = pageTarget(doc, "auto", { selectedIds: selected, visibleIds: blocksInView() });
-      const size = DEFAULT_SIZE.note;
-      const nid = doc.createWidget({ type: "note", content: "", ...freeSpot(doc.widgets(), size.w, size.h), at: { page: target } }, author);
+      const nid = doc.createWidget({ type, content, ...freeSpot(doc.widgets(), size.w, size.h), at: { page: target } }, author);
       setSelected([nid]);
       session?.setPresence({ selectedIds: [nid] });
       requestAnimationFrame(() => document.querySelector(`[data-block="${nid}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
       return;
     }
+    // A free spot in view, so a new widget does not cover the last one.
     const el = document.querySelector(".board")?.getBoundingClientRect();
-    const centre = el ? flow.screenToFlowPosition({ x: el.left + el.width / 2, y: el.top + el.height / 2 }) : { x: 0, y: 0 };
-    doc.createWidget({ type: "note", content: "", x: centre.x - 140, y: centre.y - 90 }, author);
+    const a = el ? flow.screenToFlowPosition({ x: el.left, y: el.top }) : { x: 0, y: 0 };
+    const z = el ? flow.screenToFlowPosition({ x: el.right, y: el.bottom }) : { x: 800, y: 600 };
+    const view = { x: a.x, y: a.y, w: z.x - a.x, h: z.y - a.y, zoom: 1 };
+    doc.createWidget({ type, content, ...spotInView(doc.widgets(), size.w, size.h, view) }, author);
   }, [doc, flow, author, selected, session]);
 
   const goLive = () => {
@@ -218,7 +238,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
           />
           <div className="tools">
             <LayoutSelect value={layout} onChange={(l: Layout) => l !== doc.layout && doc.setLayout(l, author)} />
-            <button onClick={addNote}>+ Note</button>
+            <AddMenu onAdd={addWidget} />
             <button className="ghost" onClick={() => undo.undo()} disabled={!undo.canUndo()} title="Undo (Ctrl+Z)">
               ↶
             </button>

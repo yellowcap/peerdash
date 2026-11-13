@@ -23,8 +23,11 @@ the steps in "For agents" below.
 - The agent peer is a local Node.js process. It is an MCP server (stdio) and
   a peer in one process. It keeps its own copy of each canvas on disk. The
   chat sees only MCP tools, never sync data.
-- Widgets are of two types:
+- Widgets are of these types:
   - `note`: Markdown.
+  - `heading`, `metric`, `chart` (Vega-Lite), `table`: typed widgets. Their
+    content is JSON data. The app renders it. A chart has inline data only
+    and no network access.
   - `html`: an HTML fragment or document in a sandboxed iframe. It has no
     network access, except to the origins that the widget allows.
 - A dashboard has a layout: `canvas` (a free 2D board) or `page` (one reading
@@ -111,10 +114,13 @@ To continue on a canvas from an earlier session, call `list_dashboards`.
 - Call `get_widget` only for widgets whose full content you need.
 - Each result has `changes_since_your_last_look`. Read it: people can edit,
   move or delete widgets at any time.
+- Use a typed widget (`heading`, `metric`, `chart`, `table`) when one fits.
+  Give its content as `data`, a JSON object. To change it, send only the
+  changed keys in `update_widget({data})`.
 - For `html` widgets: put data in `state`, not in the code. Read it with
   `peerdash.state.on((s) => ...)`. To load a library, list its origin in
   `allow` and use a pinned version URL.
-- After you make or change an `html` widget, call `get_widget_feedback` and
+- After you make or change an `html` widget or a chart, call `get_widget_feedback` and
   fix the errors that it shows.
 - On a page, `create_widget` takes `placement` (`auto`, `start`, `end`,
   `after:<id>`, `before:<id>`) and `width` (`text`, `wide`, `full`).

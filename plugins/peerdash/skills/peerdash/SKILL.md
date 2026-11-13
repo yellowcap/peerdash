@@ -36,9 +36,38 @@ change it, and every change shows in the user's browser at once.
 
 ## Widgets
 
-- `note`: Markdown. Use for text, lists, small tables, headings.
+**Use a typed widget when one fits.** The app renders it, so it looks the
+same in all dashboards. It costs fewer tokens than HTML, and you can change
+one value later without sending all of it again. Use `html` only when no
+typed widget fits.
+
+Typed widgets take `data`, a JSON object. `create_widget` gives the full
+shape of each type.
+
+- `heading`: `{"text": "Sales", "level": 2}`. A section title. Level 1, 2
+  or 3.
+- `metric`: `{"value": 1250, "label": "Orders", "unit": "€", "delta": 3.2,
+  "trend": [980, 1100, 1250]}`. A KPI tile. Only `value` and `label` are
+  required. Add `"better": "down"` when a fall is good (costs, errors).
+- `chart`: a Vega-Lite spec with inline data in `data.values`. No URLs: no
+  `data.url`, no images, no links. Aggregate large data before you send it
+  (the spec can have at most 100,000 characters).
+- `table`: `{"columns": ["Name", "Count"], "rows": [["A", 3], ["B", 5]]}`.
+  People sort it by column in the browser. At most 1000 rows.
+
+Text widgets take `content`:
+
+- `note`: Markdown. Use for text and lists.
 - `html`: an HTML fragment or a full document in a sandboxed iframe. Use for
-  charts, KPIs, tables with styling, small interactive tools.
+  custom visuals and small interactive tools.
+
+**Small updates.** To change a typed widget, send only the change in
+`update_widget({widget_id, data})`. It is a JSON merge patch: objects merge,
+`null` removes a key, arrays replace. For example, `{"data": {"value": 1310,
+"delta": 4.8}}` changes a metric and keeps its label and trend.
+
+**Check charts.** After you create or change a chart, call
+`get_widget_feedback`. Fix the Vega-Lite errors that it reports.
 
 Rules for `html` widgets:
 
@@ -84,8 +113,11 @@ A page is one reading column (720px). Blocks are in order, top to bottom.
   (1100px, for charts and tables) or `full` (the full window).
 - **Move a block** or change its width with `move_in_page`. Do not use
   `move_widgets` on a page.
-- **Headings:** write them as Markdown `#` lines in a `note`. A typed
-  `heading` widget comes later.
+- **Headings structure the page.** Start each section with a `heading`
+  widget. Use level 1 for the main parts and level 2 or 3 below them. Do not
+  write `#` lines in notes for section titles.
+- **Typed blocks:** a `metric` is a small tile. A `chart` or a `table` can be
+  `wide`.
 - **Height:** an `html` block is as tall as its content. Do not use
   `height: 100vh` or a fixed iframe height. `h` is only a fallback.
 - Write one idea per note. Short notes are easier to move and to comment on.

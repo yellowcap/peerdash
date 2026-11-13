@@ -2,8 +2,9 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, type NodeProps } from "@xyflow/react";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import type { Widget } from "@peerdash/core";
+import { isTypedWidget, type Widget } from "@peerdash/core";
 import { HtmlFrame } from "./HtmlFrame";
+import { KIND_LABEL, TypedBody } from "./TypedWidgets";
 import { useCanvas } from "./hooks";
 
 export type WidgetNodeData = { widget: Widget };
@@ -56,7 +57,7 @@ function WidgetNodeView({ id, data, selected }: NodeProps & { data: WidgetNodeDa
       />
       <Handle type="target" position={Position.Left} />
       <div className="widget-header">
-        <span className="widget-kind">{w.type === "html" ? "HTML" : "Note"}</span>
+        <span className="widget-kind">{KIND_LABEL[w.type]}</span>
         <span className="widget-title">{w.title || (w.type === "html" ? "Untitled widget" : "")}</span>
         {openComments > 0 && (
           <span className="comment-badge" title={`${openComments} open comment${openComments === 1 ? "" : "s"}`}>
@@ -77,6 +78,8 @@ function WidgetNodeView({ id, data, selected }: NodeProps & { data: WidgetNodeDa
       <div className="widget-body" onDoubleClick={() => w.type === "note" && setEditing(true)}>
         {w.type === "html" ? (
           <HtmlFrame id={id} content={w.content} allow={w.allow} />
+        ) : isTypedWidget(w.type) ? (
+          <TypedBody widget={w as Widget & { type: typeof w.type }} where="canvas" />
         ) : editing ? (
           <NoteEditor widget={w} onDone={() => setEditing(false)} />
         ) : (

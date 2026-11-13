@@ -11,8 +11,9 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { PAGE_WIDTHS, type OrderTarget, type PageWidth, type Widget } from "@peerdash/core";
+import { isTypedWidget, PAGE_WIDTHS, readTyped, type OrderTarget, type PageWidth, type Widget } from "@peerdash/core";
 import { HtmlFrame } from "./HtmlFrame";
+import { KIND_LABEL, TypedBody } from "./TypedWidgets";
 import { Markdown, NoteEditor } from "./WidgetNode";
 import { frameFeedback } from "./frame";
 import { useCanvas, useDocVersion } from "./hooks";
@@ -23,7 +24,15 @@ const MAX_FRAME = 1600;
 
 const WIDTH_LABEL: Record<PageWidth, string> = { text: "Text width", wide: "Wide", full: "Full width" };
 
-const label = (w: Widget | null | undefined) => (w ? w.title || (w.type === "html" ? "HTML block" : "Note") : "block");
+function label(w: Widget | null | undefined): string {
+  if (!w) return "block";
+  if (w.title) return w.title;
+  if (w.type === "heading") {
+    const r = readTyped("heading", w.content);
+    if ("data" in r) return r.data.text;
+  }
+  return w.type === "html" ? "HTML block" : KIND_LABEL[w.type];
+}
 
 /** Ids of the blocks that are at least partly in view, in page order. */
 export function blocksInView(): string[] {
@@ -287,6 +296,13 @@ function Block({ widget: w, selected, selectedIds, prev, next, onSelect, onMove 
         <figure className="block-figure">
           {w.title && <figcaption>{w.title}</figcaption>}
           <PageFrame widget={w} />
+        </figure>
+      ) : w.type === "heading" ? (
+        <TypedBody widget={w as Widget & { type: "heading" }} where="page" />
+      ) : isTypedWidget(w.type) ? (
+        <figure className="block-figure">
+          {w.title && <figcaption>{w.title}</figcaption>}
+          <TypedBody widget={w as Widget & { type: typeof w.type }} where="page" />
         </figure>
       ) : editing ? (
         <NoteEditor widget={w} onDone={() => setEditing(false)} />

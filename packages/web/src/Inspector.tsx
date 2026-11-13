@@ -1,5 +1,6 @@
-import { useEffect, useState, useSyncExternalStore } from "react";
-import type { Widget } from "@peerdash/core";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { cleanContent, isTypedWidget, SHAPES, type Widget } from "@peerdash/core";
+import { KIND_LABEL } from "./TypedWidgets";
 import { frameFeedback, validOrigins } from "./frame";
 import { useCanvas } from "./hooks";
 import { Comments } from "./Comments";
@@ -8,16 +9,28 @@ import { Comments } from "./Comments";
 export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => void }) {
   const { doc, author } = useCanvas();
   const [title, setTitle] = useState(widget.title);
-  const [content, setContent] = useState(widget.content);
+  const typed = isTypedWidget(widget.type);
+  // Typed content is stored as compact JSON; edit it pretty-printed.
+  const shown = useMemo(() => (typed ? pretty(widget.content) : widget.content), [typed, widget.content]);
+  const [content, setContent] = useState(shown);
   const [allow, setAllow] = useState(widget.allow.join("\n"));
   const feedback = useSyncExternalStore(frameFeedback.subscribe, () => frameFeedback.get(widget.id));
 
   // Follow remote edits while the fields are untouched.
   useEffect(() => setTitle(widget.title), [widget.title]);
-  useEffect(() => setContent(widget.content), [widget.content]);
+  useEffect(() => setContent(shown), [shown]);
   useEffect(() => setAllow(widget.allow.join("\n")), [widget.allow.join("\n")]);
 
-  const dirty = title !== widget.title || content !== widget.content || allow !== widget.allow.join("\n");
+  const invalid = useMemo(() => {
+    if (!isTypedWidget(widget.type) || content === shown) return null;
+    try {
+      cleanContent(widget.type, content);
+      return null;
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
+    }
+  }, [widget.type, content, shown]);
+  const dirty = title !== widget.title || content !== shown || allow !== widget.allow.join("\n");
   const save = () => {
     const origins = validOrigins(allow.split(/[\s,]+/));
     // Only changed fields, so the change log says what really changed.
@@ -25,7 +38,7 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
       widget.id,
       {
         title: title !== widget.title ? title : undefined,
-        content: content !== widget.content ? content : undefined,
+        content: content !== shown ? content : undefined,
         allow: origins.join("\n") !== widget.allow.join("\n") ? origins : undefined,
       },
       author,
@@ -35,7 +48,7 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
   return (
     <aside className="inspector">
       <header>
-        <strong>{widget.type === "html" ? "HTML widget" : "Note"}</strong>
+        <strong>{widget.type === "html" ? "HTML widget" : KIND_LABEL[widget.type]}</strong>
         <button className="ghost" onClick={onClose} aria-label="Close">
           ×
         </button>
@@ -45,9 +58,17 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
         <input value={title} onChange={(e) => setTitle(e.target.value)} />
       </label>
       <label className="grow">
-        {widget.type === "html" ? "HTML" : "Markdown"}
-        <textarea value={content} spellCheck={widget.type === "note"} onChange={(e) => setContent(e.target.value)} />
+        {widget.type === "html" ? "HTML" : typed ? "Content (JSON)" : "Markdown"}
+        <textarea
+          className={typed ? "code" : undefined}
+          value={content}
+          spellCheck={widget.type === "note"}
+          aria-invalid={invalid ? true : undefined}
+          onChange={(e) => setContent(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && dirty && !invalid && save()}
+        />
       </label>
+      {typed && (invalid ? <div className="error json-error">{invalid}</div> : <div className="muted json-hint">{SHAPES[widget.type as keyof typeof SHAPES]}</div>)}
       {widget.type === "html" && (
         <label>
           Allowed network origins (one per line, https only)
@@ -55,12 +76,12 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
         </label>
       )}
       <div className="row">
-        <button className="primary" disabled={!dirty} onClick={save}>
+        <button className="primary" disabled={!dirty || !!invalid} onClick={save}>
           Save
         </button>
         <span className="muted">Added by {widget.createdBy || "unknown"}</span>
       </div>
-      {widget.type === "html" && feedback && (feedback.errors.length > 0 || feedback.logs.length > 0) && (
+      {(widget.type === "html" || widget.type === "chart") && feedback && (feedback.errors.length > 0 || feedback.logs.length > 0) && (
         <div className="feedback">
           {feedback.errors.map((e, i) => (
             <div key={`e${i}`} className="error">
@@ -75,4 +96,12 @@ export function Inspector({ widget, onClose }: { widget: Widget; onClose: () => 
       <Comments widgetId={widget.id} />
     </aside>
   );
+}
+
+function pretty(json: string): string {
+  try {
+    return JSON.stringify(JSON.parse(json), null, 2);
+  } catch {
+    return json;
+  }
 }

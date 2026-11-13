@@ -10,16 +10,19 @@ import {
   bounds,
   DEFAULT_SIZE,
   freeSpot,
+  isTypedWidget,
   PAGE_PLACEMENTS,
   PAGE_WIDTHS,
   pageTarget,
+  readTyped,
+  SHAPES,
   spotInView,
   summarise,
   type CanvasDoc,
   type OrderTarget,
   type PageHere,
   type Rect,
-  type WidgetType,
+  WIDGET_TYPES,
 } from "@peerdash/core";
 import type { AgentPeer, OpenCanvas } from "./peer";
 
@@ -139,6 +142,23 @@ const allow = z
   .optional()
   .describe("https origins the HTML may load from, e.g. ['https://cdn.jsdelivr.net']. Default: no network access.");
 
+const data = z
+  .record(z.string(), z.unknown())
+  .optional()
+  .describe("heading, metric, chart, table: the content as a JSON object. See the shapes in the create_widget description.");
+
+/** The content to store: `data` (an object) for typed widgets, else `content` (text). */
+function contentOf(type: string, content: string | undefined, d: Record<string, unknown> | undefined): string {
+  if (isTypedWidget(type)) {
+    if (d !== undefined && content !== undefined) throw new Error("Give data or content, not both.");
+    if (d !== undefined) return JSON.stringify(d);
+    if (content !== undefined) return content;
+    throw new Error(`A ${type} widget needs data. ${SHAPES[type]}`);
+  }
+  if (d !== undefined) throw new Error(`A ${type} widget takes content (text), not data.`);
+  return content ?? "";
+}
+
 function cleanAllow(list?: string[]): string[] | undefined {
   if (!list) return undefined;
   const bad = list.filter((o) => !ORIGIN.test(o.replace(/\/+$/, "")));
@@ -217,7 +237,7 @@ export function createServer(peer: AgentPeer): McpServer {
     "get_widget",
     {
       title: "Get widget",
-      description: "Full content of one widget (Markdown or HTML), its network allow-list, shared state and comment thread.",
+      description: "Full content of one widget (Markdown, HTML, or `data` for a typed widget), its network allow-list, shared state and comment thread.",
       inputSchema: { widget_id: z.string(), dashboard_id: id },
     },
     async ({ widget_id, dashboard_id }) => {
@@ -225,7 +245,10 @@ export function createServer(peer: AgentPeer): McpServer {
         const c = await peer.resolve(dashboard_id);
         const w = c.doc.widget(widget_id);
         if (!w) throw new Error(`No widget with id ${widget_id}`);
-        return ok(peer, c, { note: DATA_NOTE, widget: w, state: c.doc.widgetState(widget_id), comments: c.doc.comments(widget_id) });
+        // Typed content is JSON text: give it as data too, so it reads well.
+        const typed = isTypedWidget(w.type) ? readTyped(w.type, w.content) : null;
+        const extra = typed ? ("data" in typed ? { data: typed.data } : { content_error: typed.error }) : {};
+        return ok(peer, c, { note: DATA_NOTE, widget: w, ...extra, state: c.doc.widgetState(widget_id), comments: c.doc.comments(widget_id) });
       } catch (e) {
         return fail(e);
       }
@@ -237,24 +260,31 @@ export function createServer(peer: AgentPeer): McpServer {
     {
       title: "Create widget",
       description: [
-        "Add a widget to the canvas. Types:",
+        "Add a widget. Prefer a typed widget (heading, metric, chart, table) when one fits: the app renders it, it looks the same everywhere, and later changes are small. Use html only when no typed widget fits.",
+        "Typed widgets take `data`, a JSON object:",
+        `- heading: a section title. On a page, headings divide the page into sections. ${SHAPES.heading}`,
+        `- metric: a KPI tile with an optional change and sparkline. ${SHAPES.metric}`,
+        `- chart: ${SHAPES.chart} Charts have no network access.`,
+        `- table: sortable by column in the browser. ${SHAPES.table} At most 1000 rows.`,
+        "Text widgets take `content`:",
         "- note: Markdown text.",
         "- html: an HTML fragment or full document, rendered in a sandboxed iframe (scripts allowed, no network unless `allow` lists origins).",
         "  Shared state: peerdash.state.get(key), peerdash.state.set(key, value), peerdash.state.on(fn). Put data in `state` and render from it, so later updates need only update_widget({state}).",
         "Placement on a canvas: give x and y, or `placement`: 'auto' (default: next to the user's selection, else in their view), 'near_selection', 'in_view', 'right_of:<widget_id>', 'below:<widget_id>'.",
         "Placement on a page: `placement` is 'auto' (default: after the user's selected block, else after the last block in their view, else at the end), 'start', 'end', 'after:<widget_id>' or 'before:<widget_id>'. `width`: 'text' (default, the reading column), 'wide' or 'full'. An html block is as tall as its content; `h` is the fallback.",
-        "After creating an html widget, call get_widget_feedback to check for errors.",
+        "After creating an html widget or a chart, call get_widget_feedback to check for errors.",
       ].join("\n"),
       inputSchema: {
-        type: z.enum(["note", "html"]),
-        content: z.string().describe("Markdown (note) or HTML (html)"),
+        type: z.enum(WIDGET_TYPES),
+        content: z.string().optional().describe("note: Markdown. html: HTML. Typed widgets: use data instead."),
+        data,
         title: z.string().optional(),
         placement: z.string().optional(),
         width: z.enum(PAGE_WIDTHS).optional().describe("Page only: 'text' (default), 'wide' or 'full'"),
         x: z.number().optional(),
         y: z.number().optional(),
-        w: z.number().optional().describe("Width in canvas pixels (default note 280, html 480)"),
-        h: z.number().optional().describe("Height in canvas pixels (default note 180, html 320)"),
+        w: z.number().optional().describe(`Width in canvas pixels. Defaults: ${WIDGET_TYPES.map((t) => `${t} ${DEFAULT_SIZE[t].w}`).join(", ")}`),
+        h: z.number().optional().describe(`Height in canvas pixels. Defaults: ${WIDGET_TYPES.map((t) => `${t} ${DEFAULT_SIZE[t].h}`).join(", ")}`),
         allow,
         state,
         dashboard_id: id,
@@ -263,7 +293,8 @@ export function createServer(peer: AgentPeer): McpServer {
     async (a) => {
       try {
         const c = await peer.resolve(a.dashboard_id);
-        const size = DEFAULT_SIZE[a.type as WidgetType];
+        const content = contentOf(a.type, a.content, a.data);
+        const size = DEFAULT_SIZE[a.type];
         const w = a.w ?? size.w;
         const h = a.h ?? size.h;
         const onPage = c.doc.layout === "page";
@@ -279,7 +310,7 @@ export function createServer(peer: AgentPeer): McpServer {
         const wid = c.doc.createWidget(
           {
             type: a.type,
-            content: a.content,
+            content,
             title: a.title ?? "",
             allow: cleanAllow(a.allow),
             w,
@@ -305,11 +336,20 @@ export function createServer(peer: AgentPeer): McpServer {
     "update_widget",
     {
       title: "Update widget",
-      description: "Change a widget's title, content, network allow-list, or shared state keys. Fields you leave out stay as they are.",
+      description: [
+        "Change a widget's title, content, network allow-list, or shared state keys. Fields you leave out stay as they are.",
+        "Typed widgets (heading, metric, chart, table): send only what changes in `data`. It is a JSON merge patch: objects merge, null removes a key, arrays replace.",
+        'Examples: metric {"data": {"value": 1310, "delta": 4.8}}; chart {"data": {"data": {"values": [...]}}}; table {"data": {"rows": [...]}}; heading {"data": {"text": "Costs"}}.',
+        "To replace all of a typed widget's content, send `content` as JSON text.",
+      ].join("\n"),
       inputSchema: {
         widget_id: z.string(),
         title: z.string().optional(),
-        content: z.string().optional(),
+        content: z.string().optional().describe("The new full content: Markdown, HTML, or JSON text for a typed widget."),
+        data: z
+          .record(z.string(), z.unknown())
+          .optional()
+          .describe("Typed widgets only: a JSON merge patch for the content. Only the keys you give change."),
         allow,
         state,
         dashboard_id: id,
@@ -320,7 +360,13 @@ export function createServer(peer: AgentPeer): McpServer {
         const c = await peer.resolve(a.dashboard_id);
         const w = c.doc.widget(a.widget_id);
         if (!w) throw new Error(`No widget with id ${a.widget_id}`);
+        if (a.data !== undefined && a.content !== undefined) throw new Error("Give data (a patch) or content (all of it), not both.");
         const patch = { title: a.title, content: a.content, allow: cleanAllow(a.allow) };
+        // Check the patch before any write, so a bad patch changes nothing.
+        if (a.data !== undefined) {
+          if (!isTypedWidget(w.type)) throw new Error(`data is for heading, metric, chart and table widgets. This widget is ${w.type}: send content.`);
+          c.doc.patchContent(a.widget_id, a.data, peer.name);
+        }
         if (Object.values(patch).some((v) => v !== undefined)) c.doc.updateWidget(a.widget_id, patch, peer.name);
         for (const [k, v] of Object.entries(a.state ?? {})) c.doc.setWidgetState(a.widget_id, k, v, peer.name);
         peer.showActivity(c, `editing ${a.title ?? w.title ?? w.type}`, [a.widget_id]);
@@ -483,7 +529,7 @@ export function createServer(peer: AgentPeer): McpServer {
     {
       title: "Get widget feedback",
       description:
-        "What browsers saw when they rendered an html widget: JavaScript errors, console output, sandbox blocks and rendered size. Empty when no browser is open. Rendering takes a moment after a change.",
+        "What browsers saw when they rendered an html widget or a chart: errors (for a chart, Vega-Lite errors), console output, sandbox blocks and rendered size. Empty when no browser is open. Rendering takes a moment after a change.",
       inputSchema: { widget_id: z.string(), dashboard_id: id },
     },
     async ({ widget_id, dashboard_id }) => {

@@ -2,6 +2,7 @@
 // selected chart" or "in my view" land somewhere sensible without overlaps.
 
 import type { CanvasDoc, OrderTarget, Widget } from "./doc";
+import { isTypedWidget, summariseTyped } from "./typed";
 import type { Viewport } from "./session";
 
 export interface Rect {
@@ -92,7 +93,7 @@ export function pageTarget(doc: CanvasDoc, placement: string | undefined, here: 
 
 /** One line per widget, for agents and logs. */
 export function summarise(w: Widget, max = 120): string {
-  const text = w.type === "html" ? stripTags(w.content) : w.content;
+  const text = isTypedWidget(w.type) ? summariseTyped(w.type, w.content) : w.type === "html" ? stripTags(w.content) : w.content;
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }

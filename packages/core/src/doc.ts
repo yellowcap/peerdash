@@ -19,6 +19,7 @@
 
 import { LoroDoc, LoroMap, VersionVector } from "loro-crdt";
 import { compareKeys, compareOrdered, isOrderKey, keysBetween } from "./order";
+import { cleanContent, isTypedWidget, patchContent, TYPED_WIDGETS } from "./typed";
 
 export const SCHEMA_VERSION = 2;
 
@@ -30,7 +31,9 @@ export type PageWidth = (typeof PAGE_WIDTHS)[number];
 export const MAP_SLOTS = ["panel", "overlay", "marker"] as const;
 export type MapSlot = (typeof MAP_SLOTS)[number];
 
-export type WidgetType = "note" | "html";
+export const WIDGET_TYPES = ["note", "html", ...TYPED_WIDGETS] as const;
+/** `note` and `html` hold text. The typed widgets (`heading`, `metric`, `chart`, `table`) hold JSON; see typed.ts. */
+export type WidgetType = (typeof WIDGET_TYPES)[number];
 
 export interface CanvasPlace {
   x: number;
@@ -86,7 +89,7 @@ export interface Widget {
   h: number;
   z: number;
   title: string;
-  /** Markdown for `note`, an HTML document or fragment for `html`. */
+  /** Markdown for `note`, an HTML document or fragment for `html`, JSON for a typed widget. */
   content: string;
   /** Network origins an `html` widget may load from (empty = none). */
   allow: string[];
@@ -135,6 +138,10 @@ export interface Change {
 export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   note: { w: 280, h: 180 },
   html: { w: 480, h: 320 },
+  heading: { w: 480, h: 80 },
+  metric: { w: 220, h: 150 },
+  chart: { w: 480, h: 320 },
+  table: { w: 480, h: 300 },
 };
 
 const WIDGET_FIELDS = ["type", "title", "content", "allow", "createdBy"] as const;
@@ -143,6 +150,16 @@ const ORDERED_LAYOUTS = ["page", "grid", "map"] as const;
 
 export function newId(): string {
   return crypto.randomUUID();
+}
+
+export function isWidgetType(v: unknown): v is WidgetType {
+  return (WIDGET_TYPES as readonly unknown[]).includes(v);
+}
+
+/** Check content for a widget type. Typed content must be valid JSON for the type; it is stored as compact JSON. */
+export function contentFor(type: WidgetType, content: string): string {
+  if (typeof content !== "string") throw new Error("Content must be text.");
+  return isTypedWidget(type) ? cleanContent(type, content) : content;
 }
 
 export function isLayout(v: unknown): v is Layout {
@@ -268,6 +285,8 @@ export class CanvasDoc {
   }
 
   createWidget(input: WidgetInput, author: string): string {
+    if (!isWidgetType(input.type)) throw new Error(`Unknown widget type ${String(input.type)}. Use one of: ${WIDGET_TYPES.join(", ")}.`);
+    const content = contentFor(input.type, input.content ?? "");
     const id = newId();
     const size = DEFAULT_SIZE[input.type];
     const top = this.widgets().reduce((z, w) => Math.max(z, w.z), 0);
@@ -291,7 +310,7 @@ export class CanvasDoc {
     const values = {
       type: input.type,
       title: input.title ?? "",
-      content: input.content ?? "",
+      content,
       allow: input.allow ?? [],
       createdBy: author,
     };
@@ -308,6 +327,10 @@ export class CanvasDoc {
     const m = this.requireWidget(id);
     const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
     if (fields.length === 0) return;
+    if (patch.content !== undefined) {
+      const type = m.get("type");
+      fields.splice(fields.findIndex(([k]) => k === "content"), 1, ["content", isWidgetType(type) ? contentFor(type, patch.content) : patch.content]);
+    }
     const canvas: Partial<CanvasPlace> = {};
     const rest: [string, unknown][] = [];
     for (const [k, v] of fields) {
@@ -317,6 +340,19 @@ export class CanvasDoc {
     if (Object.keys(canvas).length) this.writePlace(id, "canvas", canvas);
     for (const [k, v] of rest) m.set(k, v as never);
     this.commit(author, "edit", { id, fields: fields.map(([k]) => k) });
+  }
+
+  /**
+   * Change part of the content of a typed widget with a JSON merge patch:
+   * objects merge, `null` removes a key, arrays and other values replace.
+   * The result must be valid; else this throws and writes nothing.
+   */
+  patchContent(id: string, patch: Record<string, unknown>, author: string) {
+    const m = this.requireWidget(id);
+    const type = m.get("type");
+    if (!isTypedWidget(type)) throw new Error(`Only heading, metric, chart and table widgets take a content patch. This widget is ${String(type)}.`);
+    m.set("content", patchContent(type, String(m.get("content") ?? ""), patch));
+    this.commit(author, "edit", { id, fields: ["content"], keys: Object.keys(patch) });
   }
 
   /** Move or resize widgets on the canvas. */
@@ -687,7 +723,8 @@ function toWidget(id: string, w: Record<string, unknown>): Widget {
   const place = readPlaces(w);
   return {
     id,
-    type: w.type === "html" ? "html" : "note",
+    // Unknown types (from newer peers) show as notes, as schema 1 peers do.
+    type: isWidgetType(w.type) ? w.type : "note",
     ...place.canvas,
     title: String(w.title ?? ""),
     content: String(w.content ?? ""),
