@@ -211,6 +211,130 @@ One Loro document per canvas:
 Rules from orgmap: all shared state in Loro; mutations are named functions in
 `core`; random UUIDs; widget feedback is presence, not document data.
 
+## Layouts and typed widgets (M7, planned)
+
+A free canvas can be hard to read. Layouts give a dashboard a fixed
+structure. The infinite canvas becomes one layout of four.
+
+### Store intent, not pixels
+
+A widget keeps its content. Its position is in a separate `place` map, with
+one entry for each layout. The layout calculates the geometry from it.
+
+- `meta.layout`: `"canvas"`, `"page"`, `"grid"` or `"map"`. The user selects
+  it when they make a dashboard. They can change it later.
+- `place.canvas`: `{x, y, w, h, z}`. This is the current model.
+- `place.page`: `{order, width}`. `width` is `"text"`, `"wide"` or `"full"`.
+- `place.grid`: `{order, span, rows}`. `span` is 1–12 columns. `rows` is 1–6.
+- `place.map`: `{slot, order, lngLat}`. `slot` is `"panel"`, `"overlay"` or
+  `"marker"`. Only a marker has `lngLat`.
+
+Why:
+
+- Two peers that move widgets at the same time change only the order. The
+  merge result is clean. With pixels, widgets can overlap after a merge.
+- A change of layout does not delete data. Each layout keeps its own place.
+- A widget without a place for the current layout goes to the end.
+
+`order` is a fractional index string (`"a0"`, `"a0V"`). You can put a widget
+between two others and not change the other widgets. If two peers use the
+same key, the widget id sets the order. All peers get the same result.
+
+Old documents get `layout: "canvas"`. Their `x, y, w, h, z` move to
+`place.canvas`. `schemaVersion` becomes 2.
+
+### Layouts
+
+**Page** (report, blog, story)
+
+```
+┌──────────── 720px reading column ────────────┐
+│  # Heading                                   │
+│  note …………………………………………                      │
+│ ┌──────────── wide chart ───────────────────┐│
+│ └───────────────────────────────────────────┘│
+│  note …………………                                 │
+```
+
+- One column. Blocks are in order. A `wide` or `full` block is wider than the
+  column.
+- `heading` widgets divide the page into sections.
+- Export to Markdown, HTML and PDF is easy.
+- "Here" is the block that the user looks at.
+
+**Grid** (dashboard)
+
+```
+┌ KPI ┐┌ KPI ┐┌ KPI ┐┌ KPI ┐
+┌──── chart (span 8) ────┐┌ table (4) ┐
+└────────────────────────┘└───────────┘
+```
+
+- A CSS grid with 12 columns and a fixed row height. The browser packs the
+  widgets (`grid-auto-flow: dense`). Widgets cannot overlap.
+- On a phone, the grid has one column.
+- Drag to change the order (dnd-kit). Drag the edge to change `span`. This
+  layout does not use React Flow.
+
+**Map**
+
+```
+┌panel┐┌──────────── full-bleed map ─────────────┐
+│ list││   ┌overlay┐                ● marker card │
+│ cards││   └───────┘                              │
+└─────┘└─────────────────── time slider ──────────┘
+```
+
+- One map fills the background. Widgets go into slots: the side panel (in
+  order), an overlay (in a corner), or a marker (at a longitude and latitude).
+- The map extent and the time are shared state of the dashboard (a `context`
+  map in the document). Charts and tables can use them, for example "NO2 in
+  this view, this month".
+- Presence includes the map extent of each user. "Here" is a place on Earth.
+
+**Canvas**: no change. Use it for free work and brainstorms.
+
+### Typed widgets
+
+A typed widget contains data, not code. The app renders it. Typed widgets
+look the same in all dashboards, use fewer tokens, and the agent can change
+one value and not write all the HTML again.
+
+| Type | Content | Notes |
+|---|---|---|
+| `note` | Markdown | Exists. |
+| `heading` | Text and level | Gives structure to the page and the outline. |
+| `metric` | `{value, label, unit, delta, trend[]}` | KPI tile. |
+| `chart` | Vega-Lite spec with inline data | |
+| `table` | `{columns, rows}` | The user can sort the columns. |
+| `map` | `{view, layers[]}` | |
+| `image` | `{src, alt}` | Needs `allow` for the image origin. |
+| `html` | Any HTML | Free option. Sandbox as today. |
+
+A layout can limit widget types and sizes. For example, the grid has no
+`heading`, and the map layout has only one background map. These rules are
+in the `core` mutations, so the browser and the agent obey the same rules.
+
+### Agent tools
+
+- `get_outline` gives the widgets in reading order, with layout terms
+  (`span 4`, `section 2`, `panel #3`), not coordinates. This uses fewer
+  tokens and is easier for the model to read.
+- `create_widget` gets layout placements: `after:<id>`,
+  `section:<heading id>`, `span:<n>`, `slot:panel`, `at:<lng>,<lat>`.
+- The skill gets a short section for each layout: when to use it and which
+  widgets fit.
+
+### Steps
+
+| Step | Scope | Estimate |
+|---|---|---|
+| 1 | Document model: `layout`, `place`, order keys, migration to schema 2, outline in reading order. | ~4 days |
+| 2 | Page layout. It is the easiest, and it tests the model. | ~4 days |
+| 3 | Typed `heading`, `metric`, `chart`, `table`. | ~1 week |
+| 4 | Grid layout. | ~1 week |
+| 5 | Map layout, `map` widget, shared extent and time. | 1–2 weeks |
+
 ## Repository layout
 
 ```
@@ -236,7 +360,8 @@ them), Vite, Vitest, esbuild, `loro-crdt`, `trystero`, `werift`,
 | **M4 Plugin** | Bundle, marketplace, skills, README install steps, manifest checks in CI. | **First version done.** `claude plugin validate` passes. Not yet tested inside a real Claude Code session. |
 | **M5 Feedback loop** | Widget errors and console; `wait_for_change`; state bridge; "revert this agent". | **Partly done:** errors, console, sandbox blocks, `wait_for_change`, state bridge, agent `undo`. Not yet: "revert all changes by this agent" in the browser. |
 | **M6 Live mode** | Channels behind an option; `@claude` mentions push into the session. | A browser user asks Claude from the canvas. |
-| Later | `npx github:` setup for other MCP clients; `.mcpb` for Claude Desktop; paste mode and WebMCP for web chat apps; snapshot PNGs; `chart` widget; frames. | Open |
+| **M7 Layouts** | Page, grid and map layouts next to the canvas; typed widgets (`heading`, `metric`, `chart`, `table`, `map`, `image`). See "Layouts and typed widgets". | A user makes a page, a grid and a map dashboard, and the agent fills each one with layout placements. |
+| Later | `npx github:` setup for other MCP clients; `.mcpb` for Claude Desktop; paste mode and WebMCP for web chat apps; snapshot PNGs; frames. | Open |
 
 ## Risks and open questions
 
@@ -254,3 +379,12 @@ them), Vite, Vitest, esbuild, `loro-crdt`, `trystero`, `werift`,
 - **Plain-words install.** Not documented. The README shows the two commands.
 - **Channels** may change or need the dev flag for a long time. M6 is an
   experiment, not a promise.
+- **Layout change (M7).** Proposal: the user can change the layout, and no
+  data is lost. A fixed layout is easier to explain. Decide before step 1.
+- **Map library (M7).** MapLibre (vector tiles, small, widely used) or
+  eox-map (OpenLayers, closer to EO and STAC data). Decide before step 5.
+- **Page publish (M7).** Is the page layout only a view, or do users want a
+  static HTML export that they can host?
+- **Typed widgets and the network (M7).** A `map`, `image` or `chart` with
+  remote data makes each browser load URLs that a peer selected. Use the
+  same `allow` list as for `html` widgets, and show it in the UI.
