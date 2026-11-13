@@ -1,7 +1,14 @@
-// One canvas = one Loro document.
+// One dashboard = one Loro document.
 //
-// - `meta` (map): id, title, createdAt, schemaVersion
-// - `widgets` (map): widgetId → map { type, x, y, w, h, z, title, content, allow, createdBy, state (map) }
+// - `meta` (map): id, title, createdAt, schemaVersion, layout
+// - `widgets` (map): widgetId → map { type, title, content, allow, createdBy, state (map), place (map), x, y, w, h, z }
+//   - `place` holds one mergeable map for each layout: `canvas` {x, y, w, h, z},
+//     `page` {order, width}, `grid` {order, span, rows}, `map` {slot, order, lngLat}.
+//     Mergeable maps have a fixed id, so peers that make one at the same time
+//     get the same map, and their edits merge.
+//   - The top-level x, y, w, h, z are the schema 1 canvas fields. Schema 2 peers
+//     read `place.canvas` first and use them as a fallback. Schema 2 peers also
+//     write them, so schema 1 peers (old plugin bundles) still show positions.
 // - `edges` (map): edgeId → map { from, to, label }
 // - `comments` (map): commentId → map { widgetId, text, author, createdAt, resolved }
 //
@@ -11,14 +18,68 @@
 // to Loro directly.
 
 import { LoroDoc, LoroMap, VersionVector } from "loro-crdt";
+import { compareKeys, compareOrdered, isOrderKey, keysBetween } from "./order";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
+
+export const LAYOUTS = ["canvas", "page", "grid", "map"] as const;
+export type Layout = (typeof LAYOUTS)[number];
+export type OrderedLayout = Exclude<Layout, "canvas">;
+export const PAGE_WIDTHS = ["text", "wide", "full"] as const;
+export type PageWidth = (typeof PAGE_WIDTHS)[number];
+export const MAP_SLOTS = ["panel", "overlay", "marker"] as const;
+export type MapSlot = (typeof MAP_SLOTS)[number];
 
 export type WidgetType = "note" | "html";
+
+export interface CanvasPlace {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+}
+export interface PagePlace {
+  order: string;
+  width: PageWidth;
+}
+export interface GridPlace {
+  order: string;
+  /** Columns, 1–12. */
+  span: number;
+  /** Rows, 1–6. */
+  rows: number;
+}
+export interface MapPlace {
+  slot: MapSlot;
+  order: string;
+  /** [longitude, latitude]. Only a marker has one. */
+  lngLat?: [number, number];
+}
+/** The place of a widget in each layout. A missing entry means no place in that layout. */
+export interface Places {
+  canvas: CanvasPlace;
+  page?: PagePlace;
+  grid?: GridPlace;
+  map?: MapPlace;
+}
+export interface PlacePatches {
+  canvas: Partial<CanvasPlace>;
+  page: Partial<PagePlace>;
+  grid: Partial<GridPlace>;
+  /** `lngLat: null` removes the position. */
+  map: Partial<Omit<MapPlace, "lngLat">> & { lngLat?: [number, number] | null };
+}
+/** A spot in the order of a page, grid or map layout. */
+export type OrderTarget = "start" | "end" | { before: string } | { after: string };
+
+export const CANVAS_LIMITS = { minW: 120, minH: 60, maxSize: 8000, maxPos: 1_000_000 };
+export const GRID_DEFAULT = { span: 4, rows: 2 };
 
 export interface Widget {
   id: string;
   type: WidgetType;
+  /** `x`, `y`, `w`, `h`, `z` are the canvas place (`place.canvas`). */
   x: number;
   y: number;
   w: number;
@@ -30,6 +91,7 @@ export interface Widget {
   /** Network origins an `html` widget may load from (empty = none). */
   allow: string[];
   createdBy: string;
+  place: Places;
 }
 
 export interface Edge {
@@ -51,7 +113,11 @@ export interface Comment {
 
 export const MAX_COMMENT_LENGTH = 2000;
 
-export type WidgetInput = Partial<Omit<Widget, "id" | "createdBy">> & { type: WidgetType };
+export type WidgetInput = Partial<Omit<Widget, "id" | "createdBy" | "place">> & {
+  type: WidgetType;
+  /** Places in the page, grid and map layouts. Missing fields get defaults; a missing order goes to the end. */
+  place?: { page?: PlacePatches["page"]; grid?: PlacePatches["grid"]; map?: PlacePatches["map"] };
+};
 export type WidgetPatch = Partial<Pick<Widget, "x" | "y" | "w" | "h" | "z" | "title" | "content" | "allow">>;
 
 /** One entry of the change log. */
@@ -69,10 +135,16 @@ export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   html: { w: 480, h: 320 },
 };
 
-const WIDGET_FIELDS = ["type", "x", "y", "w", "h", "z", "title", "content", "allow", "createdBy"] as const;
+const WIDGET_FIELDS = ["type", "title", "content", "allow", "createdBy"] as const;
+const CANVAS_FIELDS = ["x", "y", "w", "h", "z"] as const;
+const ORDERED_LAYOUTS = ["page", "grid", "map"] as const;
 
 export function newId(): string {
   return crypto.randomUUID();
+}
+
+export function isLayout(v: unknown): v is Layout {
+  return (LAYOUTS as readonly unknown[]).includes(v);
 }
 
 export class CanvasDoc {
@@ -84,14 +156,16 @@ export class CanvasDoc {
     this.loro.setRecordTimestamp(true);
   }
 
-  static create(title: string, author: string, id: string = newId()): CanvasDoc {
+  static create(title: string, author: string, id: string = newId(), layout: Layout = "canvas"): CanvasDoc {
+    if (!isLayout(layout)) throw new Error(`Unknown layout ${String(layout)}`);
     const doc = new CanvasDoc();
     const meta = doc.loro.getMap("meta");
     meta.set("id", id);
     meta.set("title", title);
     meta.set("createdAt", Date.now());
     meta.set("schemaVersion", SCHEMA_VERSION);
-    doc.commit(author, "create", { title });
+    meta.set("layout", layout);
+    doc.commit(author, "create", { title, layout });
     return doc;
   }
 
@@ -114,11 +188,37 @@ export class CanvasDoc {
     return (this.loro.getMap("meta").get("title") as string | undefined) ?? "";
   }
 
+  /** The layout of the dashboard. Schema 1 documents have none, so they are canvases. */
+  get layout(): Layout {
+    const l = this.loro.getMap("meta").get("layout");
+    return isLayout(l) ? l : "canvas";
+  }
+
+  get schemaVersion(): number {
+    return Number(this.loro.getMap("meta").get("schemaVersion") ?? 1);
+  }
+
+  /** All widgets, back to front (by canvas `z`, then id). */
   widgets(): Widget[] {
     const all = this.loro.getMap("widgets").toJSON() as Record<string, Record<string, unknown>>;
     return Object.entries(all)
       .map(([id, w]) => toWidget(id, w))
-      .sort((a, b) => a.z - b.z);
+      .sort((a, b) => a.z - b.z || compareKeys(a.id, b.id));
+  }
+
+  /**
+   * Widgets in reading order for a layout (default: the current layout).
+   * Canvas: top to bottom, then left to right. Page, grid and map: by order
+   * key, then by id. Widgets with no place in the layout come last, in canvas
+   * reading order.
+   */
+  readingOrder(layout: Layout = this.layout): Widget[] {
+    const all = this.widgets().sort(compareCanvas);
+    if (layout === "canvas") return all;
+    return all
+      .map((w, i) => ({ w, i, id: w.id, order: w.place[layout]?.order }))
+      .sort((a, b) => (a.order === undefined && b.order === undefined ? a.i - b.i : compareOrdered(a, b)))
+      .map((x) => x.w);
   }
 
   widget(id: string): Widget | null {
@@ -148,18 +248,38 @@ export class CanvasDoc {
     this.commit(author, "title", { title });
   }
 
+  /**
+   * Change the layout. The places in the other layouts stay. Widgets with no
+   * place in the new layout get one at the end, in canvas reading order.
+   */
+  setLayout(layout: Layout, author: string) {
+    if (!isLayout(layout)) throw new Error(`Unknown layout ${String(layout)}. Use one of: ${LAYOUTS.join(", ")}.`);
+    this.loro.getMap("meta").set("layout", layout);
+    if (layout !== "canvas") {
+      const missing = this.readingOrder(layout).filter((w) => !w.place[layout]);
+      if (missing.length) {
+        const keys = keysBetween(this.lastKey(layout), null, missing.length);
+        missing.forEach((w, i) => this.writePlace(w.id, layout, { ...defaultPlace(layout), order: keys[i] }));
+      }
+    }
+    this.commit(author, "layout", { layout });
+  }
+
   createWidget(input: WidgetInput, author: string): string {
     const id = newId();
     const size = DEFAULT_SIZE[input.type];
     const top = this.widgets().reduce((z, w) => Math.max(z, w.z), 0);
+    // Check every place first, so that a bad input writes nothing.
+    const canvas = cleanCanvas({ x: input.x ?? 0, y: input.y ?? 0, w: input.w ?? size.w, h: input.h ?? size.h, z: input.z ?? top + 1 });
+    const others = ORDERED_LAYOUTS.map((layout) => {
+      const given = (input.place?.[layout] ?? {}) as Record<string, unknown>;
+      const patch = { ...defaultPlace(layout), ...given, order: given.order ?? keysBetween(this.lastKey(layout), null, 1)[0] };
+      checkPlace(layout, patch, undefined);
+      return [layout, patch] as const;
+    });
     const m = this.loro.getMap("widgets").setContainer(id, new LoroMap());
-    const values: Omit<Widget, "id"> = {
+    const values = {
       type: input.type,
-      x: input.x ?? 0,
-      y: input.y ?? 0,
-      w: input.w ?? size.w,
-      h: input.h ?? size.h,
-      z: input.z ?? top + 1,
       title: input.title ?? "",
       content: input.content ?? "",
       allow: input.allow ?? [],
@@ -167,6 +287,8 @@ export class CanvasDoc {
     };
     for (const k of WIDGET_FIELDS) m.set(k, values[k]);
     m.setContainer("state", new LoroMap());
+    this.writePlace(id, "canvas", canvas);
+    for (const [layout, patch] of others) this.writePlace(id, layout, patch as PlacePatches[typeof layout]);
     this.commit(author, "add", { id, type: input.type, title: values.title });
     return id;
   }
@@ -175,20 +297,44 @@ export class CanvasDoc {
     const m = this.requireWidget(id);
     const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
     if (fields.length === 0) return;
-    for (const [k, v] of fields) m.set(k, v);
+    const canvas: Partial<CanvasPlace> = {};
+    const rest: [string, unknown][] = [];
+    for (const [k, v] of fields) {
+      if ((CANVAS_FIELDS as readonly string[]).includes(k)) canvas[k as keyof CanvasPlace] = v as number;
+      else rest.push([k, v]);
+    }
+    if (Object.keys(canvas).length) this.writePlace(id, "canvas", canvas);
+    for (const [k, v] of rest) m.set(k, v as never);
     this.commit(author, "edit", { id, fields: fields.map(([k]) => k) });
   }
 
+  /** Move or resize widgets on the canvas. */
   moveWidgets(moves: { id: string; x: number; y: number; w?: number; h?: number }[], author: string) {
     if (moves.length === 0) return;
-    for (const mv of moves) {
-      const m = this.requireWidget(mv.id);
-      m.set("x", Math.round(mv.x));
-      m.set("y", Math.round(mv.y));
-      if (mv.w !== undefined) m.set("w", Math.round(mv.w));
-      if (mv.h !== undefined) m.set("h", Math.round(mv.h));
-    }
+    for (const mv of moves) this.requireWidget(mv.id);
+    for (const { id, x, y, w, h } of moves) this.writePlace(id, "canvas", { x, y, ...(w !== undefined && { w }), ...(h !== undefined && { h }) });
     this.commit(author, "move", { ids: moves.map((m) => m.id) });
+  }
+
+  /**
+   * Change the place of a widget in one layout. Numbers are rounded and
+   * clamped. A bad order key, width, slot or position throws and writes nothing.
+   */
+  setPlace<L extends Layout>(id: string, layout: L, patch: PlacePatches[L], author: string) {
+    if (!isLayout(layout)) throw new Error(`Unknown layout ${String(layout)}`);
+    this.requireWidget(id);
+    this.writePlace(id, layout, patch);
+    this.commit(author, "place", { id, layout, fields: Object.keys(patch) });
+  }
+
+  /** Move a widget to a spot in the order of a layout. Returns its new order key. */
+  moveInOrder(id: string, layout: OrderedLayout, target: OrderTarget, author: string): string {
+    this.requireWidget(id);
+    const { key, rekeys } = this.planOrder(layout, target, id);
+    for (const [other, k] of rekeys) this.writePlace(other, layout, this.widget(other)?.place[layout] ? { order: k } : { ...defaultPlace(layout), order: k });
+    this.writePlace(id, layout, this.widget(id)?.place[layout] ? { order: key } : { ...defaultPlace(layout), order: key });
+    this.commit(author, "order", { id, layout });
+    return key;
   }
 
   deleteWidgets(ids: string[], author: string) {
@@ -328,7 +474,76 @@ export class CanvasDoc {
   }
 
   private commit(author: string, action: string, values: Record<string, unknown>) {
+    // A schema 1 document becomes schema 2 on its first change by a schema 2
+    // peer. There is no separate migration step: reads fall back to the schema
+    // 1 fields. Peers that do this at the same time write the same value.
+    if (this.ready && this.schemaVersion < SCHEMA_VERSION) this.loro.getMap("meta").set("schemaVersion", SCHEMA_VERSION);
     this.loro.commit({ message: JSON.stringify({ a: author, k: action, v: values }) });
+  }
+
+  /** The highest order key in a layout, or null when no widget has a place there. */
+  private lastKey(layout: OrderedLayout): string | null {
+    let last: string | null = null;
+    for (const w of this.widgets()) {
+      const k = w.place[layout]?.order;
+      if (k !== undefined && (last === null || compareKeys(k, last) > 0)) last = k;
+    }
+    return last;
+  }
+
+  /**
+   * An order key for a spot, and new keys for the widgets that must move to
+   * make room. Widgets with the same key as the left neighbour (a tie from
+   * concurrent inserts) get new keys after the new one, so the spot is exact.
+   */
+  private planOrder(layout: OrderedLayout, target: OrderTarget, moving: string): { key: string; rekeys: [string, string][] } {
+    const placed = this.readingOrder(layout)
+      .filter((w) => w.id !== moving && w.place[layout])
+      .map((w) => ({ id: w.id, order: w.place[layout]!.order }));
+    let i: number;
+    if (target === "start") i = 0;
+    else if (target === "end") i = placed.length;
+    else {
+      const before = "before" in target;
+      const ref = before ? target.before : target.after;
+      if (ref === moving) throw new Error("A widget cannot go before or after itself.");
+      if (!this.widgetMap(ref)) throw new Error(`No widget with id ${ref}`);
+      const idx = placed.findIndex((p) => p.id === ref);
+      if (idx < 0) {
+        // The reference widget has no place yet. Put it at the end, and this widget next to it.
+        const [a, b] = keysBetween(placed.at(-1)?.order ?? null, null, 2);
+        return before ? { key: a, rekeys: [[ref, b]] } : { key: b, rekeys: [[ref, a]] };
+      }
+      i = before ? idx : idx + 1;
+    }
+    const lo = i > 0 ? placed[i - 1].order : null;
+    let j = i;
+    while (lo !== null && j < placed.length && placed[j].order === lo) j++;
+    const hi = j < placed.length ? placed[j].order : null;
+    const keys = keysBetween(lo, hi, 1 + j - i);
+    return { key: keys[0], rekeys: placed.slice(i, j).map((p, n) => [p.id, keys[n + 1]]) };
+  }
+
+  /** Check and write a place, with no commit. Throws before any write when the result is not valid. */
+  private writePlace<L extends Layout>(id: string, layout: L, patch: PlacePatches[L]) {
+    const m = this.requireWidget(id);
+    if (layout === "canvas") {
+      const clean = cleanCanvas(patch as Partial<CanvasPlace>);
+      const target = m.ensureMergeableMap("place").ensureMergeableMap("canvas");
+      for (const [k, v] of Object.entries(clean)) {
+        target.set(k, v);
+        // Schema 1 peers read only the top-level fields.
+        m.set(k, v);
+      }
+      return;
+    }
+    const current = toWidget(id, m.toJSON() as Record<string, unknown>).place[layout as OrderedLayout];
+    const clean = checkPlace(layout as OrderedLayout, patch as Record<string, unknown>, current as Record<string, unknown> | undefined);
+    const target = m.ensureMergeableMap("place").ensureMergeableMap(layout);
+    for (const [k, v] of Object.entries(clean)) {
+      if (v === null) target.delete(k);
+      else target.set(k, v as never);
+    }
   }
 
   private widgetMap(id: string): LoroMap | null {
@@ -343,19 +558,126 @@ export class CanvasDoc {
   }
 }
 
+function finite(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+function defaultPlace(layout: OrderedLayout): Record<string, unknown> {
+  return layout === "page" ? { width: "text" } : layout === "grid" ? { ...GRID_DEFAULT } : { slot: "panel" };
+}
+
+/** Round and clamp canvas numbers. Throws on a value that is not a finite number. */
+function cleanCanvas(p: Partial<CanvasPlace>): Partial<CanvasPlace> {
+  const L = CANVAS_LIMITS;
+  const out: Partial<CanvasPlace> = {};
+  for (const k of CANVAS_FIELDS) {
+    if (p[k] === undefined) continue;
+    const v = finite(p[k]);
+    if (v === undefined) throw new Error(`Canvas ${k} must be a finite number.`);
+    const r = Math.round(v);
+    out[k] = k === "w" ? clamp(r, L.minW, L.maxSize) : k === "h" ? clamp(r, L.minH, L.maxSize) : clamp(r, -L.maxPos, L.maxPos);
+  }
+  return out;
+}
+
+/**
+ * Check a page, grid or map patch against the current place. Returns the
+ * fields to write (`null` = delete). Throws when the result is not valid.
+ */
+function checkPlace(layout: OrderedLayout, patch: Record<string, unknown>, current: Record<string, unknown> | undefined): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const has = (k: string) => patch[k] !== undefined;
+  if (has("order")) {
+    if (!isOrderKey(patch.order)) throw new Error(`Not a valid order key: ${String(patch.order)}`);
+    out.order = patch.order;
+  } else if (current?.order === undefined) {
+    throw new Error(`The widget has no ${layout} place yet, so it needs an order key.`);
+  }
+  if (layout === "page" && has("width")) {
+    if (!(PAGE_WIDTHS as readonly unknown[]).includes(patch.width)) throw new Error(`Page width must be one of: ${PAGE_WIDTHS.join(", ")}.`);
+    out.width = patch.width;
+  }
+  if (layout === "grid") {
+    for (const [k, max] of [["span", 12], ["rows", 6]] as const) {
+      if (!has(k)) continue;
+      const v = finite(patch[k]);
+      if (v === undefined) throw new Error(`Grid ${k} must be a number.`);
+      out[k] = clamp(Math.round(v), 1, max);
+    }
+  }
+  if (layout === "map") {
+    if (has("slot")) {
+      if (!(MAP_SLOTS as readonly unknown[]).includes(patch.slot)) throw new Error(`Map slot must be one of: ${MAP_SLOTS.join(", ")}.`);
+      out.slot = patch.slot;
+    }
+    const slot = (out.slot ?? current?.slot ?? "panel") as MapSlot;
+    let lngLat = current?.lngLat;
+    if (patch.lngLat === null) lngLat = undefined;
+    else if (has("lngLat")) {
+      const ll = patch.lngLat;
+      const lng = Array.isArray(ll) && ll.length === 2 ? finite(ll[0]) : undefined;
+      const lat = Array.isArray(ll) && ll.length === 2 ? finite(ll[1]) : undefined;
+      if (lng === undefined || lat === undefined) throw new Error("lngLat must be [longitude, latitude].");
+      lngLat = [clamp(lng, -180, 180), clamp(lat, -90, 90)];
+    }
+    if (slot === "marker") {
+      if (lngLat === undefined) throw new Error("A map marker needs lngLat: [longitude, latitude].");
+      if (has("lngLat")) out.lngLat = lngLat;
+    } else if (has("lngLat") || current?.lngLat !== undefined) {
+      // Only a marker has a position.
+      out.lngLat = null;
+    }
+  }
+  return out;
+}
+
+/** Read the places of a widget. `place.canvas` wins over the schema 1 top-level fields. */
+function readPlaces(w: Record<string, unknown>): Places {
+  const p = (w.place !== null && typeof w.place === "object" ? w.place : {}) as Record<string, Record<string, unknown> | undefined>;
+  const c = p.canvas ?? {};
+  const pick = (k: keyof CanvasPlace, d: number) => finite(c[k]) ?? finite(w[k]) ?? d;
+  const out: Places = { canvas: { x: pick("x", 0), y: pick("y", 0), w: pick("w", 200), h: pick("h", 120), z: pick("z", 0) } };
+  const page = p.page;
+  if (page && isOrderKey(page.order)) {
+    out.page = { order: page.order, width: (PAGE_WIDTHS as readonly unknown[]).includes(page.width) ? (page.width as PageWidth) : "text" };
+  }
+  const grid = p.grid;
+  if (grid && isOrderKey(grid.order)) {
+    const n = (v: unknown, max: number, d: number) => clamp(Math.round(finite(v) ?? d), 1, max);
+    out.grid = { order: grid.order, span: n(grid.span, 12, GRID_DEFAULT.span), rows: n(grid.rows, 6, GRID_DEFAULT.rows) };
+  }
+  const map = p.map;
+  if (map && isOrderKey(map.order)) {
+    const slot = (MAP_SLOTS as readonly unknown[]).includes(map.slot) ? (map.slot as MapSlot) : "panel";
+    out.map = { slot, order: map.order };
+    const ll = map.lngLat;
+    if (slot === "marker" && Array.isArray(ll) && finite(ll[0]) !== undefined && finite(ll[1]) !== undefined) {
+      out.map.lngLat = [ll[0] as number, ll[1] as number];
+    }
+  }
+  return out;
+}
+
+/** Canvas reading order: top to bottom, then left to right, then id. */
+function compareCanvas(a: Widget, b: Widget): number {
+  return a.y - b.y || a.x - b.x || compareKeys(a.id, b.id);
+}
+
 function toWidget(id: string, w: Record<string, unknown>): Widget {
+  const place = readPlaces(w);
   return {
     id,
     type: w.type === "html" ? "html" : "note",
-    x: Number(w.x ?? 0),
-    y: Number(w.y ?? 0),
-    w: Number(w.w ?? 200),
-    h: Number(w.h ?? 120),
-    z: Number(w.z ?? 0),
+    ...place.canvas,
     title: String(w.title ?? ""),
     content: String(w.content ?? ""),
     allow: Array.isArray(w.allow) ? w.allow.map(String) : [],
     createdBy: String(w.createdBy ?? ""),
+    place,
   };
 }
 

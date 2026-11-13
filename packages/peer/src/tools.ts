@@ -42,10 +42,11 @@ function peersOf(peer: AgentPeer, c: OpenCanvas) {
 function outline(peer: AgentPeer, c: OpenCanvas) {
   const { doc } = c;
   return {
-    dashboard: { id: doc.id, title: doc.title, link: peer.link(c) },
+    dashboard: { id: doc.id, title: doc.title, layout: doc.layout, link: peer.link(c) },
     note: DATA_NOTE,
     peers: peersOf(peer, c),
-    widgets: doc.widgets().map((w) => ({
+    // Reading order: top to bottom, then left to right on a canvas; the order of the layout otherwise.
+    widgets: doc.readingOrder().map((w) => ({
       id: w.id,
       type: w.type,
       title: w.title,
@@ -53,6 +54,7 @@ function outline(peer: AgentPeer, c: OpenCanvas) {
       y: w.y,
       w: w.w,
       h: w.h,
+      ...(doc.layout !== "canvas" && { place: w.place[doc.layout] ?? null }),
       created_by: w.createdBy,
       summary: summarise(w),
       open_comments: doc.comments(w.id).filter((c) => !c.resolved).length,
@@ -148,7 +150,7 @@ export function createServer(peer: AgentPeer): McpServer {
     {
       title: "Get outline",
       description:
-        "The whole canvas in short form: widgets (id, type, title, position, size, summary), edges, and peers with their selection and viewport. Use the user's selected_widget_ids for 'this' and their viewport for 'here'.",
+        "The whole dashboard in short form: its layout, widgets in reading order (id, type, title, position, size, summary), edges, and peers with their selection and viewport. Use the user's selected_widget_ids for 'this' and their viewport for 'here'.",
       inputSchema: { dashboard_id: id },
     },
     async ({ dashboard_id }) => {
@@ -216,7 +218,8 @@ export function createServer(peer: AgentPeer): McpServer {
         const wid = c.doc.createWidget({ type: a.type, content: a.content, title: a.title ?? "", allow: cleanAllow(a.allow), w, h, ...pos }, peer.name);
         for (const [k, v] of Object.entries(a.state ?? {})) c.doc.setWidgetState(wid, k, v, peer.name);
         peer.showActivity(c, `added ${a.title || a.type}`, [wid]);
-        return ok(peer, c, { widget_id: wid, x: pos.x, y: pos.y, w, h });
+        const made = c.doc.widget(wid)!;
+        return ok(peer, c, { widget_id: wid, x: made.x, y: made.y, w: made.w, h: made.h });
       } catch (e) {
         return fail(e);
       }

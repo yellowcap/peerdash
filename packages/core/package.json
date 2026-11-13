@@ -10,6 +10,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "fractional-indexing": "4.0.0",
     "loro-crdt": "1.17.1",
     "trystero": "0.26.0"
   }

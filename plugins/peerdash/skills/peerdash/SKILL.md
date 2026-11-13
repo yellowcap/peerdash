@@ -20,8 +20,10 @@ change it, and every change shows in the user's browser at once.
 
 ## Read before you change
 
-1. Call `get_outline` first. It gives widgets (id, type, title, position,
-   size, short summary), edges and the people on the canvas.
+1. Call `get_outline` first. It gives the layout, the widgets in reading
+   order (id, type, title, position, size, short summary), edges and the
+   people on the canvas. On a canvas, reading order is top to bottom, then
+   left to right.
 2. "This", "that chart", "the selected one": use the person's
    `selected_widget_ids`.
 3. "Here", "in my view": use their `viewport`. The default placement

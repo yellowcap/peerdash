@@ -360,7 +360,7 @@ them), Vite, Vitest, esbuild, `loro-crdt`, `trystero`, `werift`,
 | **M4 Plugin** | Bundle, marketplace, skills, README install steps, manifest checks in CI. | **First version done.** `claude plugin validate` passes. Not yet tested inside a real Claude Code session. |
 | **M5 Feedback loop** | Widget errors and console; `wait_for_change`; state bridge; "revert this agent". | **Partly done:** errors, console, sandbox blocks, `wait_for_change`, state bridge, agent `undo`. Not yet: "revert all changes by this agent" in the browser. |
 | **M6 Live mode** | Channels behind an option; `@claude` mentions push into the session. | A browser user asks Claude from the canvas. |
-| **M7 Layouts** | Page, grid and map layouts next to the canvas; typed widgets (`heading`, `metric`, `chart`, `table`, `map`, `image`). See "Layouts and typed widgets". | A user makes a page, a grid and a map dashboard, and the agent fills each one with layout placements. |
+| **M7 Layouts** | Page, grid and map layouts next to the canvas; typed widgets (`heading`, `metric`, `chart`, `table`, `map`, `image`). See "Layouts and typed widgets". | A user makes a page, a grid and a map dashboard, and the agent fills each one with layout placements. **Step 1 done:** the document has `layout` and `place`. Order keys use `fractional-indexing`. There is no migration step. Peers read `place.canvas` first, then the schema 1 fields. Peers also write the schema 1 fields, so old peers still show positions. `get_outline` gives the layout and the reading order. |
 | Later | `npx github:` setup for other MCP clients; `.mcpb` for Claude Desktop; paste mode and WebMCP for web chat apps; snapshot PNGs; frames. | Open |
 
 ## Risks and open questions
