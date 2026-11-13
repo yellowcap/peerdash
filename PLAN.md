@@ -285,7 +285,7 @@ Old documents get `layout: "canvas"`. Their `x, y, w, h, z` move to
 └─────┘└─────────────────── time slider ──────────┘
 ```
 
-- One map fills the background. Widgets go into slots: the side panel (in
+- One map fills the background. MapLibre GL JS renders it. Widgets go into slots: the side panel (in
   order), an overlay (in a corner), or a marker (at a longitude and latitude).
 - The map extent and the time are shared state of the dashboard (a `context`
   map in the document). Charts and tables can use them, for example "NO2 in
@@ -307,7 +307,7 @@ one value and not write all the HTML again.
 | `metric` | `{value, label, unit, delta, trend[]}` | KPI tile. |
 | `chart` | Vega-Lite spec with inline data | |
 | `table` | `{columns, rows}` | The user can sort the columns. |
-| `map` | `{view, layers[]}` | |
+| `map` | `{view, layers[]}` | Rendered with MapLibre GL JS. |
 | `image` | `{src, alt}` | Needs `allow` for the image origin. |
 | `html` | Any HTML | Free option. Sandbox as today. |
 
@@ -381,8 +381,9 @@ them), Vite, Vitest, esbuild, `loro-crdt`, `trystero`, `werift`,
   experiment, not a promise.
 - **Layout change (M7).** Proposal: the user can change the layout, and no
   data is lost. A fixed layout is easier to explain. Decide before step 1.
-- **Map library (M7).** MapLibre (vector tiles, small, widely used) or
-  eox-map (OpenLayers, closer to EO and STAC data). Decide before step 5.
+- **Map library (M7).** Decided: MapLibre GL JS (BSD-3-Clause). It is small,
+  widely used and supports vector tiles. The app loads it only when a
+  dashboard has a map.
 - **Page publish (M7).** Is the page layout only a view, or do users want a
   static HTML export that they can host?
 - **Typed widgets and the network (M7).** A `map`, `image` or `chart` with
