@@ -32,7 +32,14 @@ export type Presence = {
   name: string;
   kind: "human" | "agent";
   selectedIds: string[];
+  /** The visible part of the canvas. Null on a page. */
   viewport: Viewport | null;
+  /**
+   * On a page: the ids of the blocks in view, in reading order. Absent on a
+   * canvas. Optional, so peers without it (old bundles) send and accept
+   * presence as before.
+   */
+  visibleIds?: string[];
   /** Short text, e.g. "editing Revenue chart". */
   activity: string | null;
   /** widgetId → feedback, only for widgets this peer renders. */
@@ -152,7 +159,9 @@ export class SyncSession {
 
   /** Merge into this peer's presence and broadcast it. */
   setPresence(patch: Partial<Presence>) {
-    const next = { ...this.me, ...patch };
+    const next: Presence = { ...this.me, ...patch };
+    // `undefined` removes an optional field, such as `visibleIds`.
+    for (const k of Object.keys(next) as (keyof Presence)[]) if (next[k] === undefined) delete next[k];
     if (JSON.stringify(next) === JSON.stringify(this.me)) return;
     this.me = next;
     this.transport.presence.send(this.me);
@@ -178,12 +187,14 @@ export class SyncSession {
 }
 
 // Presence comes from other peers: keep only the fields we know, with sane types.
+// A missing `visibleIds` is set to undefined, so it replaces a list from an earlier presence.
 function sanitisePresence(p: Partial<Presence>): Presence {
   return {
     name: typeof p.name === "string" ? p.name.slice(0, 80) : "",
     kind: p.kind === "agent" ? "agent" : "human",
     selectedIds: Array.isArray(p.selectedIds) ? p.selectedIds.filter((s) => typeof s === "string").slice(0, 500) : [],
     viewport: p.viewport && typeof p.viewport === "object" ? p.viewport : null,
+    visibleIds: Array.isArray(p.visibleIds) ? p.visibleIds.filter((s) => typeof s === "string").slice(0, 500) : undefined,
     activity: typeof p.activity === "string" ? p.activity.slice(0, 200) : null,
     feedback: p.feedback && typeof p.feedback === "object" ? p.feedback : {},
   };

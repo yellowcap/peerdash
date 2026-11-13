@@ -18,7 +18,7 @@ export function HtmlFrame({ id, content, allow }: { id: string; content: string;
       if (m.type === "ready") post();
       else if (m.type === "state:set" && typeof m.key === "string") doc.setWidgetState(id, m.key, m.value, author);
       else if (m.type === "error" || m.type === "log") frameFeedback.add(id, m.type, String(m.text));
-      else if (m.type === "size") frameFeedback.size(id, Number(m.width) || 0, Number(m.height) || 0);
+      else if (m.type === "size") frameFeedback.size(id, Number(m.width) || 0, Number(m.height) || 0, Number(m.contentHeight) || 0);
     };
     const post = () => ref.current?.contentWindow?.postMessage({ __peerdash: true, type: "state", state: doc.widgetState(id) }, "*");
     window.addEventListener("message", onMessage);

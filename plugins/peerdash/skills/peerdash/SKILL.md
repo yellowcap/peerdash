@@ -12,7 +12,8 @@ change it, and every change shows in the user's browser at once.
 ## Start
 
 - **New canvas:** call `new_dashboard` with a title. Give the user the link
-  and ask them to open it. Then add widgets.
+  and ask them to open it. Then add widgets. For a report or a story, add
+  `layout: "page"` (see "Page layout").
 - **Existing canvas:** the user copies the link from the **Share** panel in
   the browser. Call `join` with it. If it says no peer sent the canvas yet,
   ask the user to keep the canvas open, then try again.
@@ -26,8 +27,9 @@ change it, and every change shows in the user's browser at once.
    left to right.
 2. "This", "that chart", "the selected one": use the person's
    `selected_widget_ids`.
-3. "Here", "in my view": use their `viewport`. The default placement
-   (`auto`) already puts new widgets next to the selection or in the view.
+3. "Here", "in my view": use their `viewport` on a canvas, and their
+   `visible_widget_ids` on a page. The default placement (`auto`) already
+   puts new widgets next to the selection or in the view.
 4. Call `get_widget` only for widgets whose full content you need.
 5. Each tool result ends with `changes_since_your_last_look`. Read it: people
    may have edited, moved or deleted things since your last call.
@@ -62,6 +64,31 @@ Rules for `html` widgets:
 - Keep related widgets in a row or a grid with 40px gaps. Use
   `placement: "right_of:<id>"` or `"below:<id>"`, or exact `x`/`y`.
 - Use `move_widgets` to tidy up, `connect` to draw arrows.
+
+## Page layout
+
+A page is one reading column (720px). Blocks are in order, top to bottom.
+`get_outline` gives `layout: "page"` and the blocks in page order, with a
+`width` and no coordinates.
+
+- **Page or canvas.** Use a page for a report, a summary, a story or a
+  document: text and charts that people read in order. Use a canvas for a
+  free board, a brainstorm or a diagram with arrows. If you are not sure, ask.
+- **Change the layout** with `set_layout` only when the user asks. Nothing is
+  lost: each widget keeps its place in each layout.
+- **Place blocks** with `create_widget` and `placement`:
+  - `auto` (default): after the user's selected block, else after the last
+    block in their view, else at the end.
+  - `start`, `end`, `after:<widget_id>`, `before:<widget_id>`.
+- **Width:** `width` is `text` (default, the reading column), `wide`
+  (1100px, for charts and tables) or `full` (the full window).
+- **Move a block** or change its width with `move_in_page`. Do not use
+  `move_widgets` on a page.
+- **Headings:** write them as Markdown `#` lines in a `note`. A typed
+  `heading` widget comes later.
+- **Height:** an `html` block is as tall as its content. Do not use
+  `height: 100vh` or a fixed iframe height. `h` is only a fallback.
+- Write one idea per note. Short notes are easier to move and to comment on.
 
 ## Comments
 

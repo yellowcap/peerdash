@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
 import { UndoManager } from "loro-crdt";
-import { CanvasDoc, emptyPresence, generateKey, shareLink, SyncSession, type Peer } from "@peerdash/core";
+import { CanvasDoc, DEFAULT_SIZE, emptyPresence, freeSpot, generateKey, pageTarget, shareLink, SyncSession, type Layout, type Peer } from "@peerdash/core";
 import { Board } from "./Board";
+import { blocksInView, PageView } from "./PageView";
+import { LayoutSelect } from "./LayoutSelect";
 import { Inspector } from "./Inspector";
 import { AgentSetup } from "./AgentSetup";
 import { frameFeedback } from "./frame";
@@ -64,6 +66,9 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
   }, [live, key, doc]);
 
   useEffect(() => session?.setPresence({ name: author }), [session, author]);
+  // A new session starts with an empty selection: send the current one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => session?.setPresence({ selectedIds: selected }), [session]);
   useEffect(() => {
     if (!session) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -118,11 +123,30 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
 
   const ctx = useMemo(() => ({ doc, session, author, remoteSelection }), [doc, session, author, remoteSelection]);
 
+  // A new layout has a new view: start with nothing selected.
+  const layout = doc.layout;
+  const shownLayout = useRef(layout);
+  useEffect(() => {
+    if (shownLayout.current === layout) return;
+    shownLayout.current = layout;
+    setSelected([]);
+    session?.setPresence({ selectedIds: [] });
+  }, [layout, session]);
+
   const addNote = useCallback(() => {
+    if (doc.layout === "page") {
+      const target = pageTarget(doc, "auto", { selectedIds: selected, visibleIds: blocksInView() });
+      const size = DEFAULT_SIZE.note;
+      const nid = doc.createWidget({ type: "note", content: "", ...freeSpot(doc.widgets(), size.w, size.h), at: { page: target } }, author);
+      setSelected([nid]);
+      session?.setPresence({ selectedIds: [nid] });
+      requestAnimationFrame(() => document.querySelector(`[data-block="${nid}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+      return;
+    }
     const el = document.querySelector(".board")?.getBoundingClientRect();
     const centre = el ? flow.screenToFlowPosition({ x: el.left + el.width / 2, y: el.top + el.height / 2 }) : { x: 0, y: 0 };
     doc.createWidget({ type: "note", content: "", x: centre.x - 140, y: centre.y - 90 }, author);
-  }, [doc, flow, author]);
+  }, [doc, flow, author, selected, session]);
 
   const goLive = () => {
     const k = key ?? generateKey();
@@ -193,6 +217,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
             aria-label="Canvas title"
           />
           <div className="tools">
+            <LayoutSelect value={layout} onChange={(l: Layout) => l !== doc.layout && doc.setLayout(l, author)} />
             <button onClick={addNote}>+ Note</button>
             <button className="ghost" onClick={() => undo.undo()} disabled={!undo.canUndo()} title="Undo (Ctrl+Z)">
               ↶
@@ -264,7 +289,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
         )}
 
         <div className="workspace">
-          <Board onSelect={setSelected} />
+          {layout === "page" ? <PageView selected={selected} onSelect={setSelected} /> : <Board onSelect={setSelected} />}
           {inspected && <Inspector key={inspected.id} widget={inspected} onClose={() => setSelected([])} />}
         </div>
       </div>

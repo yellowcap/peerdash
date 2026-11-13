@@ -11,6 +11,7 @@ import {
   SyncSession,
   DEFAULT_APP_URL,
   type Change,
+  type Layout,
   type Peer,
   type Transport,
 } from "@peerdash/core";
@@ -46,8 +47,8 @@ export class AgentPeer {
     return shareLink(this.appUrl, c.doc.id, c.key);
   }
 
-  async create(title: string): Promise<OpenCanvas> {
-    const doc = CanvasDoc.create(title, this.name);
+  async create(title: string, layout: Layout = "canvas"): Promise<OpenCanvas> {
+    const doc = CanvasDoc.create(title, this.name, undefined, layout);
     const key = generateKey();
     this.store.setRoomKey(doc.id, key);
     this.store.saveCanvas(doc.id, doc.snapshot());

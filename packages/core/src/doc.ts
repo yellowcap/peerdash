@@ -117,6 +117,8 @@ export type WidgetInput = Partial<Omit<Widget, "id" | "createdBy" | "place">> & 
   type: WidgetType;
   /** Places in the page, grid and map layouts. Missing fields get defaults; a missing order goes to the end. */
   place?: { page?: PlacePatches["page"]; grid?: PlacePatches["grid"]; map?: PlacePatches["map"] };
+  /** A spot in the order of a layout, e.g. `{ page: { after: id } }`. Wins over `place.<layout>.order`. */
+  at?: Partial<Record<OrderedLayout, OrderTarget>>;
 };
 export type WidgetPatch = Partial<Pick<Widget, "x" | "y" | "w" | "h" | "z" | "title" | "content" | "allow">>;
 
@@ -271,9 +273,17 @@ export class CanvasDoc {
     const top = this.widgets().reduce((z, w) => Math.max(z, w.z), 0);
     // Check every place first, so that a bad input writes nothing.
     const canvas = cleanCanvas({ x: input.x ?? 0, y: input.y ?? 0, w: input.w ?? size.w, h: input.h ?? size.h, z: input.z ?? top + 1 });
+    const rekeys: [OrderedLayout, string, string][] = [];
     const others = ORDERED_LAYOUTS.map((layout) => {
       const given = (input.place?.[layout] ?? {}) as Record<string, unknown>;
-      const patch = { ...defaultPlace(layout), ...given, order: given.order ?? keysBetween(this.lastKey(layout), null, 1)[0] };
+      const target = input.at?.[layout];
+      let order = given.order ?? keysBetween(this.lastKey(layout), null, 1)[0];
+      if (target) {
+        const plan = this.planOrder(layout, target, id);
+        order = plan.key;
+        for (const [other, k] of plan.rekeys) rekeys.push([layout, other, k]);
+      }
+      const patch = { ...defaultPlace(layout), ...given, order };
       checkPlace(layout, patch, undefined);
       return [layout, patch] as const;
     });
@@ -289,6 +299,7 @@ export class CanvasDoc {
     m.setContainer("state", new LoroMap());
     this.writePlace(id, "canvas", canvas);
     for (const [layout, patch] of others) this.writePlace(id, layout, patch as PlacePatches[typeof layout]);
+    for (const [layout, other, k] of rekeys) this.writeOrder(other, layout, k);
     this.commit(author, "add", { id, type: input.type, title: values.title });
     return id;
   }
@@ -331,8 +342,8 @@ export class CanvasDoc {
   moveInOrder(id: string, layout: OrderedLayout, target: OrderTarget, author: string): string {
     this.requireWidget(id);
     const { key, rekeys } = this.planOrder(layout, target, id);
-    for (const [other, k] of rekeys) this.writePlace(other, layout, this.widget(other)?.place[layout] ? { order: k } : { ...defaultPlace(layout), order: k });
-    this.writePlace(id, layout, this.widget(id)?.place[layout] ? { order: key } : { ...defaultPlace(layout), order: key });
+    for (const [other, k] of rekeys) this.writeOrder(other, layout, k);
+    this.writeOrder(id, layout, key);
     this.commit(author, "order", { id, layout });
     return key;
   }
@@ -522,6 +533,11 @@ export class CanvasDoc {
     const hi = j < placed.length ? placed[j].order : null;
     const keys = keysBetween(lo, hi, 1 + j - i);
     return { key: keys[0], rekeys: placed.slice(i, j).map((p, n) => [p.id, keys[n + 1]]) };
+  }
+
+  /** Write an order key, with a default place when the widget has none in the layout yet. No commit. */
+  private writeOrder(id: string, layout: OrderedLayout, order: string) {
+    this.writePlace(id, layout, this.widget(id)?.place[layout] ? { order } : { ...defaultPlace(layout), order });
   }
 
   /** Check and write a place, with no commit. Throws before any write when the result is not valid. */

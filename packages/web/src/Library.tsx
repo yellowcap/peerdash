@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { CanvasDoc } from "@peerdash/core";
+import { CanvasDoc, type Layout } from "@peerdash/core";
+import { LayoutSelect } from "./LayoutSelect";
 import { canvases, displayName, liveFlag, roomKey, type StoredCanvas } from "./storage";
 import { importFile } from "./files";
 import { AgentSetup } from "./AgentSetup";
@@ -8,12 +9,13 @@ export function Library() {
   const [list, setList] = useState<StoredCanvas[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const file = useRef<HTMLInputElement>(null);
+  const [layout, setLayout] = useState<Layout>("canvas");
 
   const reload = () => canvases.list().then(setList);
   useEffect(() => void reload(), []);
 
   const create = async () => {
-    const doc = CanvasDoc.create("Untitled canvas", displayName.get() || "Guest");
+    const doc = CanvasDoc.create(layout === "page" ? "Untitled page" : "Untitled canvas", displayName.get() || "Guest", undefined, layout);
     await canvases.put({ id: doc.id, title: doc.title, snapshot: doc.snapshot(), updatedAt: Date.now() });
     location.hash = `#/c/${doc.id}`;
   };
@@ -35,8 +37,9 @@ export function Library() {
         </p>
       </header>
       <div className="row">
+        <LayoutSelect value={layout} onChange={setLayout} title="Layout of the new dashboard. You can change it later." />
         <button className="primary" onClick={create}>
-          New canvas
+          {layout === "page" ? "New page" : "New canvas"}
         </button>
         <button onClick={() => file.current?.click()}>Open file…</button>
         <input

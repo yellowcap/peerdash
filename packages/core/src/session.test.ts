@@ -137,3 +137,41 @@ describe("CanvasDoc", () => {
     expect(d.widgetState(id)).toEqual({ count: 3 });
   });
 });
+
+describe("presence on a page", () => {
+  it("carries visibleIds when a peer sends them, and drops them when it stops", async () => {
+    const hub = new Hub();
+    const a = CanvasDoc.create("P", "Ann", undefined, "page");
+    const sa = new SyncSession(a, hub.connect("a"), emptyPresence("Ann", "human"));
+    const sb = new SyncSession(new CanvasDoc(), hub.connect("b"), emptyPresence("Claude", "agent"));
+    await tick();
+    expect(sb.state.peers[0].visibleIds).toBeUndefined();
+
+    sa.setPresence({ visibleIds: ["w1", "w2"], viewport: null });
+    await tick();
+    expect(sb.state.peers[0].visibleIds).toEqual(["w1", "w2"]);
+
+    // Back on a canvas: the field goes away, and the old list does not stay.
+    sa.setPresence({ visibleIds: undefined, viewport: { x: 0, y: 0, w: 100, h: 100, zoom: 1 } });
+    expect("visibleIds" in sa.presence).toBe(false);
+    await tick();
+    expect(sb.state.peers[0].visibleIds).toBeUndefined();
+    expect(sb.state.peers[0].viewport).toMatchObject({ w: 100 });
+  });
+
+  it("accepts presence from an old peer without visibleIds, and cleans bad values", async () => {
+    const hub = new Hub();
+    const sa = new SyncSession(CanvasDoc.create("P", "Ann"), hub.connect("a"), emptyPresence("Ann", "human"));
+    const t = hub.connect("old");
+    await tick();
+    // An old peer sends only the fields it knows.
+    const old = emptyPresence("Old", "human");
+    t.presence.send(old);
+    await tick();
+    expect(sa.state.peers[0]).toMatchObject({ name: "Old", selectedIds: [] });
+    expect(sa.state.peers[0].visibleIds).toBeUndefined();
+    t.presence.send({ ...old, visibleIds: ["ok", 3, null] as never });
+    await tick();
+    expect(sa.state.peers[0].visibleIds).toEqual(["ok"]);
+  });
+});

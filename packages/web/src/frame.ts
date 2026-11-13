@@ -46,7 +46,8 @@ const BRIDGE = `(() => {
       on: (f) => { subs.add(f); return () => subs.delete(f); },
     },
   };
-  const report = () => send({ type: "size", width: document.documentElement.scrollWidth, height: document.documentElement.scrollHeight });
+  // contentHeight is the height of the <html> box. Unlike scrollHeight, it can be less than the iframe, so a page block can shrink to fit.
+  const report = () => { const d = document.documentElement; send({ type: "size", width: d.scrollWidth, height: d.scrollHeight, contentHeight: Math.ceil(d.getBoundingClientRect().height) }); };
   addEventListener("message", (e) => {
     if (e.source !== parent || !e.data || !e.data.__peerdash) return;
     if (e.data.type === "state") { state = e.data.state || {}; notify(); }
@@ -83,6 +84,8 @@ type Listener = (all: Record<string, WidgetFeedback>) => void;
 
 const MAX_LINES = 20;
 const feedback: Record<string, WidgetFeedback> = {};
+// Content heights stay in this browser: the page layout sizes html blocks with them.
+const contentHeights: Record<string, number> = {};
 const listeners = new Set<Listener>();
 
 function touch(id: string): WidgetFeedback {
@@ -102,7 +105,11 @@ export const frameFeedback = {
     f.at = Date.now();
     this.emit();
   },
-  size(id: string, width: number, height: number) {
+  size(id: string, width: number, height: number, contentHeight = 0) {
+    if (contentHeight > 0 && contentHeights[id] !== contentHeight) {
+      contentHeights[id] = contentHeight;
+      this.emit();
+    }
     const f = touch(id);
     if (f.width === width && f.height === height) return;
     f.width = width;
@@ -112,9 +119,12 @@ export const frameFeedback = {
   },
   remove(id: string) {
     delete feedback[id];
+    delete contentHeights[id];
     this.emit();
   },
   get: (id: string): WidgetFeedback | undefined => feedback[id],
+  /** Height of the content of an html widget, in CSS pixels; 0 before the first report. */
+  contentHeight: (id: string): number => contentHeights[id] ?? 0,
   all: () => ({ ...feedback }),
   subscribe(l: Listener) {
     listeners.add(l);

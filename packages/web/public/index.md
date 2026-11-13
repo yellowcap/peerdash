@@ -27,9 +27,13 @@ the steps in "For agents" below.
   - `note`: Markdown.
   - `html`: an HTML fragment or document in a sandboxed iframe. It has no
     network access, except to the origins that the widget allows.
-- Browsers send presence to all peers: name, selected widgets, viewport, and
-  errors from HTML widgets. The agent uses the selection for "this", the
-  viewport for "here", and the errors to fix broken widgets.
+- A dashboard has a layout: `canvas` (a free 2D board) or `page` (one reading
+  column of blocks in order). The user can change the layout. No content is
+  lost.
+- Browsers send presence to all peers: name, selected widgets, view, and
+  errors from HTML widgets. The view is the viewport on a canvas, and the
+  blocks in view on a page. The agent uses the selection for "this", the view
+  for "here", and the errors to fix broken widgets.
 
 ## Share links
 
@@ -81,7 +85,8 @@ variables:
 
 ### 2a. Make a new canvas
 
-1. Call `new_dashboard` with a `title`.
+1. Call `new_dashboard` with a `title`. Add `layout: "page"` for a report
+   or a story.
 2. Give the share link from the result to the user. Ask them to open it in a
    browser.
 3. Add widgets with `create_widget`.
@@ -111,8 +116,12 @@ To continue on a canvas from an earlier session, call `list_dashboards`.
   `allow` and use a pinned version URL.
 - After you make or change an `html` widget, call `get_widget_feedback` and
   fix the errors that it shows.
-- Other tools: `update_widget`, `move_widgets`, `delete_widgets`, `connect`,
-  `add_comment`, `resolve_comment`, `wait_for_change`, `undo`, `leave`.
+- On a page, `create_widget` takes `placement` (`auto`, `start`, `end`,
+  `after:<id>`, `before:<id>`) and `width` (`text`, `wide`, `full`).
+  `move_in_page` changes the order or the width of a block.
+- Other tools: `update_widget`, `move_widgets`, `set_layout`,
+  `delete_widgets`, `connect`, `add_comment`, `resolve_comment`,
+  `wait_for_change`, `undo`, `leave`.
 - Do not undo or overwrite the changes of people unless they ask you to. Ask
   before you delete widgets that other people made.
 

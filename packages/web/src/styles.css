@@ -546,3 +546,158 @@ button.small {
   border: 1px solid var(--line);
   white-space: nowrap;
 }
+
+select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 4px 6px;
+}
+
+/* Page layout */
+
+.page-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: var(--surface);
+}
+.page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  min-height: 100%;
+  padding: 40px 0 160px;
+}
+/* The reading column: 720px, with a 16px gutter on a phone. */
+.page-title,
+.page-empty,
+.block {
+  width: min(720px, calc(100% - 32px));
+}
+.page-title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 1.2;
+}
+.page-empty {
+  margin: 0;
+}
+.block {
+  position: relative;
+  font-size: 16px;
+  line-height: 1.6;
+  border-radius: 6px;
+  outline: 1px solid transparent;
+  outline-offset: 6px;
+}
+.block-wide {
+  width: min(1100px, calc(100% - 32px));
+}
+.block-full {
+  width: 100%;
+  outline-offset: -2px;
+}
+.block:hover {
+  outline-color: var(--line);
+}
+.block:focus-visible,
+.block.is-selected {
+  outline: 2px solid var(--accent);
+}
+.block.is-lifted {
+  z-index: 5;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.page-scroll.is-dragging iframe {
+  pointer-events: none;
+}
+.block .markdown {
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.block .markdown img {
+  max-width: 100%;
+}
+.block .markdown pre,
+.block .markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.block-full .markdown {
+  padding: 0 16px;
+}
+.block .note-editor {
+  min-height: 160px;
+  field-sizing: content;
+  font-size: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.block-bar {
+  position: absolute;
+  top: -14px;
+  right: 4px;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.block-tools {
+  display: none;
+  gap: 2px;
+  align-items: center;
+  padding: 1px 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.block:hover .block-tools,
+.block:focus-within .block-tools,
+.block.is-selected .block-tools {
+  display: flex;
+}
+.drag-handle {
+  cursor: grab;
+  touch-action: none;
+}
+.width-select {
+  font-size: 12px;
+  padding: 1px 4px;
+}
+.block-figure {
+  margin: 0;
+}
+.block-figure figcaption {
+  margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.block-full figcaption {
+  padding: 0 16px;
+}
+.block-frame {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.block-full .block-frame {
+  border-radius: 0;
+  border-inline: 0;
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding-top: 24px;
+  }
+  .page-title {
+    font-size: 24px;
+  }
+}

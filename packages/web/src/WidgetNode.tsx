@@ -8,12 +8,12 @@ import { useCanvas } from "./hooks";
 
 export type WidgetNodeData = { widget: Widget };
 
-function Markdown({ text }: { text: string }) {
+export function Markdown({ text }: { text: string }) {
   const html = useMemo(() => DOMPurify.sanitize(marked.parse(text || "*Empty note — double-click to write.*", { async: false })), [text]);
   return <div className="markdown" dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-function NoteEditor({ widget, onDone }: { widget: Widget; onDone: () => void }) {
+export function NoteEditor({ widget, onDone }: { widget: Widget; onDone: () => void }) {
   const { doc, author } = useCanvas();
   const [text, setText] = useState(widget.content);
   const ref = useRef<HTMLTextAreaElement>(null);
