@@ -1,10 +1,10 @@
 import type { Layout } from "@peerdash/core";
 
-/** The layouts a user can pick now. Grid and map come later. */
+/** The layouts a user can pick now. Map comes later. */
 export const LAYOUT_OPTIONS: { value: Layout; label: string; ready: boolean }[] = [
   { value: "canvas", label: "Canvas", ready: true },
   { value: "page", label: "Page", ready: true },
-  { value: "grid", label: "Grid (later)", ready: false },
+  { value: "grid", label: "Grid", ready: true },
   { value: "map", label: "Map (later)", ready: false },
 ];
 

@@ -702,6 +702,222 @@ select {
   }
 }
 
+/* Grid layout */
+
+.grid-scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.grid-wrap {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 24px 24px 160px;
+}
+.grid-title {
+  margin: 0 0 16px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+.grid-note {
+  margin: 0 0 16px;
+}
+/* 12 columns, a fixed row height. Dense packing fills gaps, and cells never overlap. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-auto-rows: var(--row);
+  grid-auto-flow: row dense;
+  gap: var(--gap);
+}
+.cell {
+  grid-column: span var(--span);
+  grid-row: span var(--rows);
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  box-shadow: none;
+  overflow: visible;
+}
+.cell .widget-header {
+  border-radius: 8px 8px 0 0;
+}
+.cell .widget-body {
+  border-radius: 0 0 8px 8px;
+  overflow: auto;
+}
+.cell:hover,
+.cell:focus-within,
+.cell.is-selected {
+  z-index: 2;
+}
+.cell:focus-visible,
+.cell.is-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.cell.is-lifted {
+  z-index: 5;
+  box-shadow: var(--shadow);
+  opacity: 0.92;
+}
+.cell.is-resizing {
+  outline: 2px dashed var(--accent);
+}
+.cell-header {
+  cursor: default;
+}
+/* The bar floats above the top edge, as on a page, so a narrow cell does not cut it. */
+.cell-bar {
+  position: absolute;
+  top: -14px;
+  left: 6px;
+  right: 6px;
+  z-index: 6;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  align-items: center;
+  pointer-events: none;
+}
+.cell-bar > * {
+  pointer-events: auto;
+}
+.cell .block-tools {
+  display: none;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+  gap: 2px;
+  align-items: center;
+  padding: 1px 2px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+.cell:hover .block-tools,
+.cell:focus-within .block-tools,
+.cell.is-selected .block-tools {
+  display: flex;
+}
+.cell .widget-title:empty {
+  flex: 1;
+}
+.size-control {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.size-value {
+  min-width: 2.6em;
+  text-align: center;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.cell .chart-view {
+  height: 100%;
+}
+.cell .heading-view,
+.cell .table-view {
+  height: 100%;
+}
+/* Where a dragged cell goes: a bar on the side of the cell under it. */
+.cell.drop-before::before,
+.cell.drop-after::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 3;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.cell.drop-before::before {
+  left: 0;
+}
+.cell.drop-after::after {
+  right: 0;
+}
+.cell-size {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 4;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--accent);
+  border-radius: 999px;
+}
+.cell-resize {
+  position: absolute;
+  z-index: 4;
+  touch-action: none;
+}
+.cell-resize-x {
+  top: 0;
+  right: 0;
+  bottom: 10px;
+  width: 8px;
+  cursor: ew-resize;
+}
+.cell-resize-y {
+  left: 0;
+  right: 10px;
+  bottom: 0;
+  height: 8px;
+  cursor: ns-resize;
+}
+.cell-resize-xy {
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+.cell:hover .cell-resize-x,
+.cell.is-selected .cell-resize-x,
+.cell.is-resizing .cell-resize-x {
+  background: linear-gradient(to right, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+  opacity: 0.5;
+}
+.cell:hover .cell-resize-y,
+.cell.is-selected .cell-resize-y,
+.cell.is-resizing .cell-resize-y {
+  background: linear-gradient(to bottom, transparent 3px, var(--accent) 3px, var(--accent) 5px, transparent 5px);
+  opacity: 0.5;
+}
+.grid-scroll.is-dragging iframe {
+  pointer-events: none;
+}
+
+/* A phone: one column, 16px gutter. The span stays in the document. */
+@media (max-width: 640px) {
+  .grid-wrap {
+    padding: 16px 16px 120px;
+  }
+  .grid-title {
+    font-size: 22px;
+  }
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .cell {
+    grid-column: span 1;
+  }
+  .cell-resize-x,
+  .cell-resize-xy,
+  .span-control {
+    display: none;
+  }
+}
+
 /* Add menu */
 
 .add-menu {

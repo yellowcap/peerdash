@@ -17,7 +17,8 @@ import { chartSrcdoc, fitSpec } from "./chart";
 import { frameFeedback } from "./frame";
 import { useCanvas } from "./hooks";
 
-export type Where = "canvas" | "page";
+/** Where a widget renders. On a page it is as tall as its content; on a canvas and in a grid it fills its box. */
+export type Where = "canvas" | "page" | "grid";
 
 export const KIND_LABEL: Record<Widget["type"], string> = {
   note: "Note",
@@ -189,7 +190,7 @@ function ChartView({ id, spec, where, fallbackHeight }: { id: string; spec: Char
   const ref = useRef<HTMLIFrameElement>(null);
   const [srcdoc, setSrcdoc] = useState<string | null>(null);
   const dark = useDark();
-  const fill = where === "canvas";
+  const fill = where !== "page";
   const message = useMemo(() => ({ __peerdash: true, type: "chart", spec: fitSpec(spec, fill), fill, dark }), [spec, fill, dark]);
   const reported = useSyncExternalStore(frameFeedback.subscribe, () => frameFeedback.contentHeight(id));
 

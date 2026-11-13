@@ -13,7 +13,8 @@ change it, and every change shows in the user's browser at once.
 
 - **New canvas:** call `new_dashboard` with a title. Give the user the link
   and ask them to open it. Then add widgets. For a report or a story, add
-  `layout: "page"` (see "Page layout").
+  `layout: "page"` (see "Page layout"). For a dashboard of KPIs, charts and
+  tables, add `layout: "grid"` (see "Grid layout").
 - **Existing canvas:** the user copies the link from the **Share** panel in
   the browser. Call `join` with it. If it says no peer sent the canvas yet,
   ask the user to keep the canvas open, then try again.
@@ -28,7 +29,7 @@ change it, and every change shows in the user's browser at once.
 2. "This", "that chart", "the selected one": use the person's
    `selected_widget_ids`.
 3. "Here", "in my view": use their `viewport` on a canvas, and their
-   `visible_widget_ids` on a page. The default placement (`auto`) already
+   `visible_widget_ids` on a page or a grid. The default placement (`auto`) already
    puts new widgets next to the selection or in the view.
 4. Call `get_widget` only for widgets whose full content you need.
 5. Each tool result ends with `changes_since_your_last_look`. Read it: people
@@ -111,7 +112,7 @@ A page is one reading column (720px). Blocks are in order, top to bottom.
   - `start`, `end`, `after:<widget_id>`, `before:<widget_id>`.
 - **Width:** `width` is `text` (default, the reading column), `wide`
   (1100px, for charts and tables) or `full` (the full window).
-- **Move a block** or change its width with `move_in_page`. Do not use
+- **Move a block** or change its width with `move_in_layout`. Do not use
   `move_widgets` on a page.
 - **Headings structure the page.** Start each section with a `heading`
   widget. Use level 1 for the main parts and level 2 or 3 below them. Do not
@@ -121,6 +122,29 @@ A page is one reading column (720px). Blocks are in order, top to bottom.
 - **Height:** an `html` block is as tall as its content. Do not use
   `height: 100vh` or a fixed iframe height. `h` is only a fallback.
 - Write one idea per note. Short notes are easier to move and to comment on.
+
+## Grid layout
+
+A grid is a dashboard of tiles: 12 columns and rows of a fixed height. The
+browser packs the tiles, so they do not overlap. `get_outline` gives
+`layout: "grid"` and the widgets in grid order, with `span` and `rows`.
+
+- **Grid, page or canvas.** Use a grid for a dashboard that people scan:
+  KPIs, charts and tables. Use a page for text that people read in order.
+- **Size:** `span` is the width in columns (1 to 12). `rows` is the height
+  (1 to 6). Typical sizes:
+  - a KPI row: four `metric` widgets with `span: 3`, `rows: 2`;
+  - a chart and a table: `chart` with `span: 8` and a `table` with
+    `span: 4`, both `rows: 4`;
+  - a full-width chart: `span: 12`.
+- **Place tiles** with `create_widget`, `placement` (the same values as on a
+  page), `span` and `rows`. Add tiles in reading order: left to right, then
+  top to bottom.
+- **Move or resize a tile** with `move_in_layout` (`placement`, `span`,
+  `rows`). Do not use `move_widgets` on a grid.
+- **No headings in a grid.** Give each tile a short `title`. Headings belong
+  on pages. If a page changes to a grid, the outline lists its headings in
+  `not_shown`. They are not deleted.
 
 ## Comments
 

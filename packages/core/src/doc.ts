@@ -78,6 +78,7 @@ export type OrderTarget = "start" | "end" | { before: string } | { after: string
 
 export const CANVAS_LIMITS = { minW: 120, minH: 60, maxSize: 8000, maxPos: 1_000_000 };
 export const GRID_DEFAULT = { span: 4, rows: 2 };
+export const GRID_LIMITS = { span: 12, rows: 6 };
 
 export interface Widget {
   id: string;
@@ -143,6 +144,37 @@ export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   chart: { w: 480, h: 320 },
   table: { w: 480, h: 300 },
 };
+
+/** The grid size of a new widget, by type. A heading is not in the grid; its size is used only for old data. */
+export const GRID_SIZE: Record<WidgetType, { span: number; rows: number }> = {
+  note: { span: 4, rows: 2 },
+  html: { span: 6, rows: 3 },
+  heading: { span: 12, rows: 1 },
+  metric: { span: 3, rows: 2 },
+  chart: { span: 6, rows: 3 },
+  table: { span: 6, rows: 3 },
+};
+
+/**
+ * Widget types that a layout does not show. The grid has no `heading`: a
+ * dashboard grid has no sections, and a heading in a cell of a dense grid
+ * would not stay above the cells that follow it. Use a widget title, or a page.
+ *
+ * Core refuses to add these widgets, or to move or resize them, in that layout.
+ * Widgets that exist already (for example when a page changes to a grid) stay
+ * in the document with all their places. The layout does not show them, and
+ * they come back when the layout changes again.
+ */
+export const HIDDEN_TYPES: Partial<Record<Layout, readonly WidgetType[]>> = { grid: ["heading"] };
+
+/** True when a layout shows widgets of this type. */
+export function fitsLayout(type: WidgetType, layout: Layout): boolean {
+  return !HIDDEN_TYPES[layout]?.includes(type);
+}
+
+function notInLayout(type: WidgetType, layout: Layout): string {
+  return `The ${layout} layout has no ${type} widgets.${type === "heading" && layout === "grid" ? " Give each widget a title instead, or use a page for sections." : ""}`;
+}
 
 const WIDGET_FIELDS = ["type", "title", "content", "allow", "createdBy"] as const;
 const CANVAS_FIELDS = ["x", "y", "w", "h", "z"] as const;
@@ -240,6 +272,11 @@ export class CanvasDoc {
       .map((x) => x.w);
   }
 
+  /** The widgets that a layout shows, in reading order. The grid does not show headings; see `HIDDEN_TYPES`. */
+  widgetsIn(layout: Layout = this.layout): Widget[] {
+    return this.readingOrder(layout).filter((w) => fitsLayout(w.type, layout));
+  }
+
   widget(id: string): Widget | null {
     const m = this.widgetMap(id);
     return m ? toWidget(id, m.toJSON()) : null;
@@ -278,7 +315,7 @@ export class CanvasDoc {
       const missing = this.readingOrder(layout).filter((w) => !w.place[layout]);
       if (missing.length) {
         const keys = keysBetween(this.lastKey(layout), null, missing.length);
-        missing.forEach((w, i) => this.writePlace(w.id, layout, { ...defaultPlace(layout), order: keys[i] }));
+        missing.forEach((w, i) => this.writePlace(w.id, layout, { ...defaultPlace(layout, w.type), order: keys[i] }));
       }
     }
     this.commit(author, "layout", { layout });
@@ -286,6 +323,7 @@ export class CanvasDoc {
 
   createWidget(input: WidgetInput, author: string): string {
     if (!isWidgetType(input.type)) throw new Error(`Unknown widget type ${String(input.type)}. Use one of: ${WIDGET_TYPES.join(", ")}.`);
+    if (!fitsLayout(input.type, this.layout)) throw new Error(notInLayout(input.type, this.layout));
     const content = contentFor(input.type, input.content ?? "");
     const id = newId();
     const size = DEFAULT_SIZE[input.type];
@@ -294,7 +332,8 @@ export class CanvasDoc {
     const canvas = cleanCanvas({ x: input.x ?? 0, y: input.y ?? 0, w: input.w ?? size.w, h: input.h ?? size.h, z: input.z ?? top + 1 });
     const rekeys: [OrderedLayout, string, string][] = [];
     const others = ORDERED_LAYOUTS.map((layout) => {
-      const given = (input.place?.[layout] ?? {}) as Record<string, unknown>;
+      // Fields set to undefined keep their defaults.
+      const given = Object.fromEntries(Object.entries(input.place?.[layout] ?? {}).filter(([, v]) => v !== undefined)) as Record<string, unknown>;
       const target = input.at?.[layout];
       let order = given.order ?? keysBetween(this.lastKey(layout), null, 1)[0];
       if (target) {
@@ -302,7 +341,7 @@ export class CanvasDoc {
         order = plan.key;
         for (const [other, k] of plan.rekeys) rekeys.push([layout, other, k]);
       }
-      const patch = { ...defaultPlace(layout), ...given, order };
+      const patch = { ...defaultPlace(layout, input.type), ...given, order };
       checkPlace(layout, patch, undefined);
       return [layout, patch] as const;
     });
@@ -369,14 +408,14 @@ export class CanvasDoc {
    */
   setPlace<L extends Layout>(id: string, layout: L, patch: PlacePatches[L], author: string) {
     if (!isLayout(layout)) throw new Error(`Unknown layout ${String(layout)}`);
-    this.requireWidget(id);
+    this.requireFit(id, layout);
     this.writePlace(id, layout, patch);
     this.commit(author, "place", { id, layout, fields: Object.keys(patch) });
   }
 
   /** Move a widget to a spot in the order of a layout. Returns its new order key. */
   moveInOrder(id: string, layout: OrderedLayout, target: OrderTarget, author: string): string {
-    this.requireWidget(id);
+    this.requireFit(id, layout);
     const { key, rekeys } = this.planOrder(layout, target, id);
     for (const [other, k] of rekeys) this.writeOrder(other, layout, k);
     this.writeOrder(id, layout, key);
@@ -573,7 +612,14 @@ export class CanvasDoc {
 
   /** Write an order key, with a default place when the widget has none in the layout yet. No commit. */
   private writeOrder(id: string, layout: OrderedLayout, order: string) {
-    this.writePlace(id, layout, this.widget(id)?.place[layout] ? { order } : { ...defaultPlace(layout), order });
+    const w = this.widget(id);
+    this.writePlace(id, layout, w?.place[layout] ? { order } : { ...defaultPlace(layout, w?.type ?? "note"), order });
+  }
+
+  /** The widget must exist and the layout must show its type. */
+  private requireFit(id: string, layout: Layout) {
+    const type = this.requireWidget(id).get("type");
+    if (isWidgetType(type) && !fitsLayout(type, layout)) throw new Error(notInLayout(type, layout));
   }
 
   /** Check and write a place, with no commit. Throws before any write when the result is not valid. */
@@ -618,8 +664,8 @@ function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
 }
 
-function defaultPlace(layout: OrderedLayout): Record<string, unknown> {
-  return layout === "page" ? { width: "text" } : layout === "grid" ? { ...GRID_DEFAULT } : { slot: "panel" };
+function defaultPlace(layout: OrderedLayout, type: WidgetType): Record<string, unknown> {
+  return layout === "page" ? { width: "text" } : layout === "grid" ? { ...GRID_SIZE[type] } : { slot: "panel" };
 }
 
 /** Round and clamp canvas numbers. Throws on a value that is not a finite number. */
@@ -654,7 +700,7 @@ function checkPlace(layout: OrderedLayout, patch: Record<string, unknown>, curre
     out.width = patch.width;
   }
   if (layout === "grid") {
-    for (const [k, max] of [["span", 12], ["rows", 6]] as const) {
+    for (const [k, max] of [["span", GRID_LIMITS.span], ["rows", GRID_LIMITS.rows]] as const) {
       if (!has(k)) continue;
       const v = finite(patch[k]);
       if (v === undefined) throw new Error(`Grid ${k} must be a number.`);

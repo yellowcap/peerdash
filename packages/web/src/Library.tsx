@@ -5,6 +5,8 @@ import { canvases, displayName, liveFlag, roomKey, type StoredCanvas } from "./s
 import { importFile } from "./files";
 import { AgentSetup } from "./AgentSetup";
 
+const NOUN: Record<Layout, string> = { canvas: "canvas", page: "page", grid: "dashboard", map: "map" };
+
 export function Library() {
   const [list, setList] = useState<StoredCanvas[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +17,7 @@ export function Library() {
   useEffect(() => void reload(), []);
 
   const create = async () => {
-    const doc = CanvasDoc.create(layout === "page" ? "Untitled page" : "Untitled canvas", displayName.get() || "Guest", undefined, layout);
+    const doc = CanvasDoc.create(`Untitled ${NOUN[layout]}`, displayName.get() || "Guest", undefined, layout);
     await canvases.put({ id: doc.id, title: doc.title, snapshot: doc.snapshot(), updatedAt: Date.now() });
     location.hash = `#/c/${doc.id}`;
   };
@@ -39,7 +41,7 @@ export function Library() {
       <div className="row">
         <LayoutSelect value={layout} onChange={setLayout} title="Layout of the new dashboard. You can change it later." />
         <button className="primary" onClick={create}>
-          {layout === "page" ? "New page" : "New canvas"}
+          New {NOUN[layout]}
         </button>
         <button onClick={() => file.current?.click()}>Open file…</button>
         <input

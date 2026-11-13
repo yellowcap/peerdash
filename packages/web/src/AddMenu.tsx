@@ -10,7 +10,7 @@ const ITEMS: { type: WidgetType; label: string; hint: string }[] = [
 ];
 
 /** "+ Note" and a menu with the other widget types. */
-export function AddMenu({ onAdd }: { onAdd: (type: WidgetType) => void }) {
+export function AddMenu({ onAdd, hide = [] }: { onAdd: (type: WidgetType) => void; hide?: readonly WidgetType[] }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
@@ -38,12 +38,12 @@ export function AddMenu({ onAdd }: { onAdd: (type: WidgetType) => void }) {
       <button className="add-main" onClick={() => add("note")}>
         + Note
       </button>
-      <button className="add-more" aria-label="Add another widget" aria-haspopup="menu" aria-expanded={open} title="Add a heading, metric, chart or table" onClick={() => setOpen((o) => !o)}>
+      <button className="add-more" aria-label="Add another widget" aria-haspopup="menu" aria-expanded={open} title={`Add a ${ITEMS.filter((it) => it.type !== "note" && !hide.includes(it.type)).map((it) => it.label.toLowerCase()).join(", ")}`} onClick={() => setOpen((o) => !o)}>
         ▾
       </button>
       {open && (
         <div className="add-list" role="menu">
-          {ITEMS.map((it) => (
+          {ITEMS.filter((it) => !hide.includes(it.type)).map((it) => (
             <button key={it.type} role="menuitem" onClick={() => add(it.type)}>
               <strong>{it.label}</strong>
               <span className="muted">{it.hint}</span>

@@ -1,7 +1,7 @@
 // Where to put a new widget. Used by the agent peer so that "put it next to the
 // selected chart" or "in my view" land somewhere sensible without overlaps.
 
-import type { CanvasDoc, OrderTarget, Widget } from "./doc";
+import { fitsLayout, type CanvasDoc, type OrderedLayout, type OrderTarget, type Widget } from "./doc";
 import { isTypedWidget, summariseTyped } from "./typed";
 import type { Viewport } from "./session";
 
@@ -56,39 +56,47 @@ export function spotInView(widgets: Rect[], w: number, h: number, view: Viewport
   return freeSpot(widgets, w, h, bounds(inView) ?? { ...centre, w: 0, h: 0 });
 }
 
-export const PAGE_PLACEMENTS = "start, end, after:<widget_id>, before:<widget_id>, auto";
+export const ORDER_PLACEMENTS = "start, end, after:<widget_id>, before:<widget_id>, auto";
 
-/** What a person looks at on a page. */
+/** What a person looks at on a page or a grid. */
 export interface PageHere {
   selectedIds?: string[];
   visibleIds?: string[];
 }
 
 /**
- * The spot on a page for a placement string:
+ * The spot in a page or grid for a placement string:
  * - `start`, `end`;
  * - `after:<id>`, `before:<id>`;
- * - `auto` (default): after the selected block (the last one, if there are
- *   more), else after the last block in view, else at the end.
- * Throws on an unknown placement or widget id.
+ * - `auto` (default): after the selected widget (the last one, if there are
+ *   more), else after the last widget in view, else at the end.
+ * Throws on an unknown placement, an unknown widget id, or a widget that the
+ * layout does not show (a heading in the grid).
  */
-export function pageTarget(doc: CanvasDoc, placement: string | undefined, here: PageHere = {}): OrderTarget {
+export function orderTarget(doc: CanvasDoc, layout: OrderedLayout, placement: string | undefined, here: PageHere = {}): OrderTarget {
   const p = (placement ?? "auto").trim();
   if (p === "start" || p === "end") return p;
   const m = p.match(/^(after|before):(.+)$/);
   if (m) {
     const ref = m[2].trim();
-    if (!doc.widget(ref)) throw new Error(`No widget with id ${ref}`);
+    const w = doc.widget(ref);
+    if (!w) throw new Error(`No widget with id ${ref}`);
+    if (!fitsLayout(w.type, layout)) throw new Error(`Widget ${ref} is a ${w.type}. The ${layout} layout does not show it, so it cannot be a reference.`);
     return m[1] === "after" ? { after: ref } : { before: ref };
   }
-  if (p !== "auto") throw new Error(`Unknown page placement "${p}". Use one of: ${PAGE_PLACEMENTS}.`);
-  const order = doc.readingOrder("page").map((w) => w.id);
+  if (p !== "auto") throw new Error(`Unknown ${layout} placement "${p}". Use one of: ${ORDER_PLACEMENTS}.`);
+  const order = doc.widgetsIn(layout).map((w) => w.id);
   const lastOf = (ids: string[] | undefined) => {
     const set = new Set(ids ?? []);
     return order.filter((id) => set.has(id)).at(-1);
   };
   const ref = lastOf(here.selectedIds) ?? lastOf(here.visibleIds);
   return ref ? { after: ref } : "end";
+}
+
+/** `orderTarget` for the page layout. */
+export function pageTarget(doc: CanvasDoc, placement: string | undefined, here: PageHere = {}): OrderTarget {
+  return orderTarget(doc, "page", placement, here);
 }
 
 /** One line per widget, for agents and logs. */

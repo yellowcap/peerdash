@@ -11,14 +11,17 @@ import {
   DEFAULT_SIZE,
   freeSpot,
   isTypedWidget,
-  PAGE_PLACEMENTS,
+  GRID_LIMITS,
+  GRID_SIZE,
+  ORDER_PLACEMENTS,
+  orderTarget,
   PAGE_WIDTHS,
-  pageTarget,
   readTyped,
   SHAPES,
   spotInView,
   summarise,
   type CanvasDoc,
+  type OrderedLayout,
   type OrderTarget,
   type PageHere,
   type Rect,
@@ -57,7 +60,7 @@ function peersOf(peer: AgentPeer, c: OpenCanvas) {
   }));
 }
 
-/** What the people on a page look at: all their selections, and the first non-empty view. */
+/** What the people on a page or grid look at: all their selections, and the first non-empty view. */
 function here(peer: AgentPeer, c: OpenCanvas): PageHere {
   const humans = peer.peers(c).filter((p) => p.kind === "human");
   return {
@@ -66,7 +69,7 @@ function here(peer: AgentPeer, c: OpenCanvas): PageHere {
   };
 }
 
-/** Canvas placements also work on a page: right_of and below mean after, near_selection and in_view mean auto. */
+/** Canvas placements also work on a page or grid: right_of and below mean after, near_selection and in_view mean auto. */
 function pagePlacement(p: string | undefined): string | undefined {
   if (!p) return p;
   const m = p.match(/^(right_of|below):(.+)$/);
@@ -74,39 +77,59 @@ function pagePlacement(p: string | undefined): string | undefined {
   return p === "near_selection" || p === "in_view" ? "auto" : p;
 }
 
-const LATER = "The grid and map layouts come in a later version. Use canvas or page.";
+const LATER = "The map layout comes in a later version. Use canvas, page or grid.";
 const layoutArg = z.enum(["canvas", "page", "grid", "map"]);
+const MOVE_PLACEMENTS = ORDER_PLACEMENTS.replace(", auto", "");
 
-function supportedLayout(l: string | undefined): "canvas" | "page" {
-  if (l === undefined || l === "canvas" || l === "page") return l ?? "canvas";
+function supportedLayout(l: string | undefined): "canvas" | "page" | "grid" {
+  if (l === undefined || l === "canvas" || l === "page" || l === "grid") return l ?? "canvas";
   throw new Error(LATER);
 }
 
-/** 1-based position on the page and the block before it. */
-function pageSpot(doc: CanvasDoc, wid: string) {
-  const order = doc.readingOrder("page").map((w) => w.id);
+function isOrdered(l: string): l is "page" | "grid" {
+  return l === "page" || l === "grid";
+}
+
+/** The size terms of a widget in a page or grid: width on a page, span and rows in a grid. */
+function sizeIn(doc: CanvasDoc, layout: "page" | "grid", wid: string) {
+  const w = doc.widget(wid);
+  if (layout === "page") return { width: w?.place.page?.width ?? "text" };
+  const g = w?.place.grid ?? (w ? GRID_SIZE[w.type] : GRID_SIZE.note);
+  return { span: g.span, rows: g.rows };
+}
+
+/** 1-based position in a page or grid, the widget before it, and its size terms. */
+function orderSpot(doc: CanvasDoc, layout: "page" | "grid", wid: string) {
+  const order = doc.widgetsIn(layout).map((w) => w.id);
   const i = order.indexOf(wid);
-  return { position: i + 1, of: order.length, after: i > 0 ? order[i - 1] : null, width: doc.widget(wid)?.place.page?.width ?? "text" };
+  return { position: i + 1, of: order.length, after: i > 0 ? order[i - 1] : null, ...sizeIn(doc, layout, wid) };
 }
 
 function outline(peer: AgentPeer, c: OpenCanvas) {
   const { doc } = c;
+  const shown = new Set(doc.widgetsIn().map((w) => w.id));
+  const hidden = doc.readingOrder().filter((w) => !shown.has(w.id));
   return {
     dashboard: { id: doc.id, title: doc.title, layout: doc.layout, link: peer.link(c) },
     note: DATA_NOTE,
     peers: peersOf(peer, c),
     // Reading order: top to bottom, then left to right on a canvas; the order of the layout otherwise.
-    widgets: doc.readingOrder().map((w) => ({
+    widgets: doc.widgetsIn().map((w) => ({
       id: w.id,
       type: w.type,
       title: w.title,
-      // A page has no coordinates: only the order (this list) and the width.
-      ...(doc.layout === "page" ? { width: w.place.page?.width ?? "text" } : { x: w.x, y: w.y, w: w.w, h: w.h }),
-      ...(doc.layout !== "canvas" && doc.layout !== "page" && { place: w.place[doc.layout] ?? null }),
+      // A page or grid has no coordinates: only the order (this list) and the size terms.
+      ...(isOrdered(doc.layout) ? sizeIn(doc, doc.layout, w.id) : doc.layout === "canvas" ? { x: w.x, y: w.y, w: w.w, h: w.h } : { place: w.place[doc.layout] ?? null }),
       created_by: w.createdBy,
       summary: summarise(w),
       open_comments: doc.comments(w.id).filter((c) => !c.resolved).length,
     })),
+    ...(hidden.length && {
+      not_shown: {
+        why: `The ${doc.layout} layout does not show these widgets. They keep their content and come back in other layouts.`,
+        widgets: hidden.map((w) => ({ id: w.id, type: w.type, title: w.title, summary: summarise(w) })),
+      },
+    }),
     edges: doc.edges(),
   };
 }
@@ -141,6 +164,9 @@ const allow = z
   .array(z.string())
   .optional()
   .describe("https origins the HTML may load from, e.g. ['https://cdn.jsdelivr.net']. Default: no network access.");
+
+const span = z.number().optional().describe(`Grid only: width in columns, 1-${GRID_LIMITS.span}. Clamped.`);
+const rows = z.number().optional().describe(`Grid only: height in rows, 1-${GRID_LIMITS.rows}. Clamped.`);
 
 const data = z
   .record(z.string(), z.unknown())
@@ -179,7 +205,9 @@ export function createServer(peer: AgentPeer): McpServer {
         title: z.string().describe("Dashboard title"),
         layout: layoutArg
           .optional()
-          .describe("'canvas' (default): free 2D board. 'page': one reading column of blocks in order, for reports and stories. grid and map come later."),
+          .describe(
+            "'canvas' (default): free 2D board. 'page': one reading column of blocks in order, for reports and stories. 'grid': a 12-column dashboard of tiles (KPIs, charts, tables). map comes later.",
+          ),
       },
     },
     async ({ title, layout }) => {
@@ -220,7 +248,7 @@ export function createServer(peer: AgentPeer): McpServer {
     {
       title: "Get outline",
       description:
-        "The whole dashboard in short form: its layout, widgets in reading order (id, type, title, summary; x/y/w/h on a canvas, width on a page), edges, and peers with their selection and view. Use the user's selected_widget_ids for 'this'. For 'here', use their viewport on a canvas and their visible_widget_ids on a page.",
+        "The whole dashboard in short form: its layout, widgets in reading order (id, type, title, summary; x/y/w/h on a canvas, width on a page, span and rows in a grid), edges, and peers with their selection and view. Use the user's selected_widget_ids for 'this'. For 'here', use their viewport on a canvas and their visible_widget_ids on a page or grid.",
       inputSchema: { dashboard_id: id },
     },
     async ({ dashboard_id }) => {
@@ -271,7 +299,9 @@ export function createServer(peer: AgentPeer): McpServer {
         "- html: an HTML fragment or full document, rendered in a sandboxed iframe (scripts allowed, no network unless `allow` lists origins).",
         "  Shared state: peerdash.state.get(key), peerdash.state.set(key, value), peerdash.state.on(fn). Put data in `state` and render from it, so later updates need only update_widget({state}).",
         "Placement on a canvas: give x and y, or `placement`: 'auto' (default: next to the user's selection, else in their view), 'near_selection', 'in_view', 'right_of:<widget_id>', 'below:<widget_id>'.",
-        "Placement on a page: `placement` is 'auto' (default: after the user's selected block, else after the last block in their view, else at the end), 'start', 'end', 'after:<widget_id>' or 'before:<widget_id>'. `width`: 'text' (default, the reading column), 'wide' or 'full'. An html block is as tall as its content; `h` is the fallback.",
+        "Placement on a page or grid: `placement` is 'auto' (default: after the user's selected widget, else after the last widget in their view, else at the end), 'start', 'end', 'after:<widget_id>' or 'before:<widget_id>'.",
+        "Page: `width` is 'text' (default, the reading column), 'wide' or 'full'. An html block is as tall as its content; `h` is the fallback.",
+        `Grid: \`span\` is the width in columns (1-12 of 12) and \`rows\` the height in rows (1-6). Defaults: ${WIDGET_TYPES.filter((t) => t !== "heading").map((t) => `${t} ${GRID_SIZE[t].span}x${GRID_SIZE[t].rows}`).join(", ")}. The grid has no heading widgets.`,
         "After creating an html widget or a chart, call get_widget_feedback to check for errors.",
       ].join("\n"),
       inputSchema: {
@@ -281,6 +311,8 @@ export function createServer(peer: AgentPeer): McpServer {
         title: z.string().optional(),
         placement: z.string().optional(),
         width: z.enum(PAGE_WIDTHS).optional().describe("Page only: 'text' (default), 'wide' or 'full'"),
+        span,
+        rows,
         x: z.number().optional(),
         y: z.number().optional(),
         w: z.number().optional().describe(`Width in canvas pixels. Defaults: ${WIDGET_TYPES.map((t) => `${t} ${DEFAULT_SIZE[t].w}`).join(", ")}`),
@@ -297,11 +329,12 @@ export function createServer(peer: AgentPeer): McpServer {
         const size = DEFAULT_SIZE[a.type];
         const w = a.w ?? size.w;
         const h = a.h ?? size.h;
-        const onPage = c.doc.layout === "page";
+        const layout = c.doc.layout;
+        const ordered = isOrdered(layout) ? layout : null;
         let target: OrderTarget | undefined;
         let pos: { x: number; y: number };
-        if (onPage) {
-          target = pageTarget(c.doc, pagePlacement(a.placement), here(peer, c));
+        if (ordered) {
+          target = orderTarget(c.doc, ordered, pagePlacement(a.placement), here(peer, c));
           // The canvas place is used if the user changes the layout later.
           pos = a.x !== undefined && a.y !== undefined ? { x: a.x, y: a.y } : freeSpot(c.doc.widgets(), w, h);
         } else {
@@ -316,15 +349,18 @@ export function createServer(peer: AgentPeer): McpServer {
             w,
             h,
             ...pos,
-            ...(target && { at: { page: target } }),
-            ...(a.width && { place: { page: { width: a.width } } }),
+            ...(target && ordered && { at: { [ordered]: target } as Partial<Record<OrderedLayout, OrderTarget>> }),
+            place: {
+              ...(a.width && { page: { width: a.width } }),
+              ...((a.span !== undefined || a.rows !== undefined) && { grid: { span: a.span, rows: a.rows } }),
+            },
           },
           peer.name,
         );
         for (const [k, v] of Object.entries(a.state ?? {})) c.doc.setWidgetState(wid, k, v, peer.name);
         peer.showActivity(c, `added ${a.title || a.type}`, [wid]);
         const made = c.doc.widget(wid)!;
-        if (onPage) return ok(peer, c, { widget_id: wid, ...pageSpot(c.doc, wid) });
+        if (ordered) return ok(peer, c, { widget_id: wid, ...orderSpot(c.doc, ordered, wid) });
         return ok(peer, c, { widget_id: wid, x: made.x, y: made.y, w: made.w, h: made.h });
       } catch (e) {
         return fail(e);
@@ -381,7 +417,7 @@ export function createServer(peer: AgentPeer): McpServer {
     "move_widgets",
     {
       title: "Move or resize widgets",
-      description: "Set position (and optionally size) of one or more widgets, in canvas pixels. On a page, use move_in_page.",
+      description: "Set position (and optionally size) of one or more widgets, in canvas pixels. On a page or grid, use move_in_layout.",
       inputSchema: {
         moves: z.array(z.object({ widget_id: z.string(), x: z.number(), y: z.number(), w: z.number().optional(), h: z.number().optional() })),
         dashboard_id: id,
@@ -399,34 +435,54 @@ export function createServer(peer: AgentPeer): McpServer {
     },
   );
 
+  const moveInput = {
+    widget_id: z.string(),
+    placement: z.string().optional(),
+    width: z.enum(PAGE_WIDTHS).optional().describe("Page only"),
+    span,
+    rows,
+    dashboard_id: id,
+  };
+  type MoveArgs = { widget_id: string; placement?: string; width?: (typeof PAGE_WIDTHS)[number]; span?: number; rows?: number; dashboard_id?: string };
+  const moveInLayout = async (a: MoveArgs): Promise<Result> => {
+    try {
+      const c = await peer.resolve(a.dashboard_id);
+      const layout = c.doc.layout;
+      if (!isOrdered(layout)) throw new Error(`move_in_layout is for a page or a grid. This dashboard is a ${layout}: use move_widgets.`);
+      const w = c.doc.widget(a.widget_id);
+      if (!w) throw new Error(`No widget with id ${a.widget_id}`);
+      const sized = layout === "page" ? a.width !== undefined : a.span !== undefined || a.rows !== undefined;
+      if (layout === "page" && (a.span !== undefined || a.rows !== undefined)) throw new Error("span and rows are for a grid. On a page, use width.");
+      if (layout === "grid" && a.width !== undefined) throw new Error("width is for a page. In a grid, use span and rows.");
+      if (!a.placement && !sized) throw new Error(`Give a placement, ${layout === "page" ? "a width" : "a span or rows"}, or both.`);
+      if (a.placement?.trim() === "auto") throw new Error(`A move needs an exact spot: ${MOVE_PLACEMENTS}.`);
+      // Check everything first, so that a bad input writes nothing.
+      const target = a.placement ? orderTarget(c.doc, layout, a.placement) : !w.place[layout] ? "end" : null;
+      if (target) c.doc.moveInOrder(a.widget_id, layout, target, peer.name);
+      if (layout === "page" && a.width) c.doc.setPlace(a.widget_id, "page", { width: a.width }, peer.name);
+      if (layout === "grid" && sized) c.doc.setPlace(a.widget_id, "grid", { span: a.span, rows: a.rows }, peer.name);
+      peer.showActivity(c, `arranging the ${layout}`, [a.widget_id]);
+      return ok(peer, c, { widget_id: a.widget_id, ...orderSpot(c.doc, layout, a.widget_id) });
+    } catch (e) {
+      return fail(e);
+    }
+  };
+
+  server.registerTool(
+    "move_in_layout",
+    {
+      title: "Move or resize in a page or grid",
+      description: `Move one widget in the order of a page or grid, or change its size. placement: ${MOVE_PLACEMENTS}. Page: width 'text' (reading column), 'wide' or 'full'. Grid: span (columns, 1-12) and rows (1-6); values out of range are clamped. Give a placement, a size, or both. Use move_widgets on a canvas.`,
+      inputSchema: moveInput,
+    },
+    moveInLayout,
+  );
+
+  // The step 2 name. Kept so that older skills and chats still work.
   server.registerTool(
     "move_in_page",
-    {
-      title: "Move a block on a page",
-      description: `Move one block in the page order, or change its width. placement: ${PAGE_PLACEMENTS.replace(", auto", "")}. width: 'text' (reading column), 'wide' or 'full'. Give one or both. Use move_widgets on a canvas.`,
-      inputSchema: {
-        widget_id: z.string(),
-        placement: z.string().optional(),
-        width: z.enum(PAGE_WIDTHS).optional(),
-        dashboard_id: id,
-      },
-    },
-    async (a) => {
-      try {
-        const c = await peer.resolve(a.dashboard_id);
-        const w = c.doc.widget(a.widget_id);
-        if (!w) throw new Error(`No widget with id ${a.widget_id}`);
-        if (!a.placement && !a.width) throw new Error("Give a placement, a width, or both.");
-        if (a.placement?.trim() === "auto") throw new Error(`A move needs an exact spot: ${PAGE_PLACEMENTS.replace(", auto", "")}.`);
-        if (a.placement) c.doc.moveInOrder(a.widget_id, "page", pageTarget(c.doc, a.placement), peer.name);
-        else if (!w.place.page) c.doc.moveInOrder(a.widget_id, "page", "end", peer.name);
-        if (a.width) c.doc.setPlace(a.widget_id, "page", { width: a.width }, peer.name);
-        peer.showActivity(c, "arranging the page", [a.widget_id]);
-        return ok(peer, c, { widget_id: a.widget_id, ...pageSpot(c.doc, a.widget_id) });
-      } catch (e) {
-        return fail(e);
-      }
-    },
+    { title: "Move in page (old name)", description: "Old name of move_in_layout. Use move_in_layout.", inputSchema: moveInput },
+    moveInLayout,
   );
 
   server.registerTool(
@@ -434,7 +490,7 @@ export function createServer(peer: AgentPeer): McpServer {
     {
       title: "Set layout",
       description:
-        "Change the layout of the dashboard: 'canvas' (free 2D board) or 'page' (one reading column). Nothing is lost: each widget keeps its place in every layout. Ask the user first; they see the change at once.",
+        "Change the layout of the dashboard: 'canvas' (free 2D board), 'page' (one reading column) or 'grid' (12-column dashboard of tiles). Nothing is lost: each widget keeps its place in every layout. A grid does not show headings; they come back in the other layouts. Ask the user first; they see the change at once.",
       inputSchema: { layout: layoutArg, dashboard_id: id },
     },
     async ({ layout, dashboard_id }) => {
@@ -442,7 +498,13 @@ export function createServer(peer: AgentPeer): McpServer {
         const c = await peer.resolve(dashboard_id);
         c.doc.setLayout(supportedLayout(layout), peer.name);
         peer.showActivity(c, `changed the layout to ${layout}`, []);
-        return ok(peer, c, { layout: c.doc.layout, next: "Call get_outline to see the widgets in the new reading order." });
+        const shown = c.doc.widgetsIn().length;
+        const hidden = c.doc.widgets().length - shown;
+        return ok(peer, c, {
+          layout: c.doc.layout,
+          ...(hidden > 0 && { not_shown: `${hidden} widget(s) are not shown in this layout (headings in a grid). They are not deleted.` }),
+          next: "Call get_outline to see the widgets in the new reading order.",
+        });
       } catch (e) {
         return fail(e);
       }

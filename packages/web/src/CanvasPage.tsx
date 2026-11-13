@@ -7,8 +7,9 @@ import {
   emptyPresence,
   freeSpot,
   generateKey,
+  HIDDEN_TYPES,
   isTypedWidget,
-  pageTarget,
+  orderTarget,
   shareLink,
   spotInView,
   STARTER_CONTENT,
@@ -19,7 +20,9 @@ import {
 } from "@peerdash/core";
 import { AddMenu } from "./AddMenu";
 import { Board } from "./Board";
-import { blocksInView, PageView } from "./PageView";
+import { PageView } from "./PageView";
+import { GridView } from "./GridView";
+import { blocksInView } from "./Ordered";
 import { LayoutSelect } from "./LayoutSelect";
 import { Inspector } from "./Inspector";
 import { AgentSetup } from "./AgentSetup";
@@ -152,9 +155,10 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
   const addWidget = useCallback((type: WidgetType) => {
     const content = isTypedWidget(type) ? STARTER_CONTENT[type] : "";
     const size = DEFAULT_SIZE[type];
-    if (doc.layout === "page") {
-      const target = pageTarget(doc, "auto", { selectedIds: selected, visibleIds: blocksInView() });
-      const nid = doc.createWidget({ type, content, ...freeSpot(doc.widgets(), size.w, size.h), at: { page: target } }, author);
+    const layout = doc.layout;
+    if (layout === "page" || layout === "grid") {
+      const target = orderTarget(doc, layout, "auto", { selectedIds: selected, visibleIds: blocksInView() });
+      const nid = doc.createWidget({ type, content, ...freeSpot(doc.widgets(), size.w, size.h), at: { [layout]: target } }, author);
       setSelected([nid]);
       session?.setPresence({ selectedIds: [nid] });
       requestAnimationFrame(() => document.querySelector(`[data-block="${nid}"]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }));
@@ -238,7 +242,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
           />
           <div className="tools">
             <LayoutSelect value={layout} onChange={(l: Layout) => l !== doc.layout && doc.setLayout(l, author)} />
-            <AddMenu onAdd={addWidget} />
+            <AddMenu onAdd={addWidget} hide={HIDDEN_TYPES[layout]} />
             <button className="ghost" onClick={() => undo.undo()} disabled={!undo.canUndo()} title="Undo (Ctrl+Z)">
               ↶
             </button>
@@ -309,7 +313,13 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
         )}
 
         <div className="workspace">
-          {layout === "page" ? <PageView selected={selected} onSelect={setSelected} /> : <Board onSelect={setSelected} />}
+          {layout === "page" ? (
+            <PageView selected={selected} onSelect={setSelected} />
+          ) : layout === "grid" ? (
+            <GridView selected={selected} onSelect={setSelected} />
+          ) : (
+            <Board onSelect={setSelected} />
+          )}
           {inspected && <Inspector key={inspected.id} widget={inspected} onClose={() => setSelected([])} />}
         </div>
       </div>
