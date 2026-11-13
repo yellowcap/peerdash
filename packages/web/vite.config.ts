@@ -6,6 +6,9 @@ import wasm from "vite-plugin-wasm";
 
 const RUNTIME = "virtual:chart-runtime";
 
+/** A file from node_modules, without its source map comment. */
+const file = (p: string) => readFileSync(fileURLToPath(new URL(`node_modules/${p}`, import.meta.url)), "utf8").replace(/^\/\/# sourceMappingURL=.*$/gm, "");
+
 /**
  * The chart renderer (Vega, Vega-Lite, vega-embed and the Vega expression
  * interpreter) as one classic script, in a text module. Chart iframes inline
@@ -13,7 +16,6 @@ const RUNTIME = "virtual:chart-runtime";
  * separate chunk and is loaded only when a dashboard has a chart.
  */
 function chartRuntime(): Plugin {
-  const file = (p: string) => readFileSync(fileURLToPath(new URL(`node_modules/${p}`, import.meta.url)), "utf8").replace(/^\/\/# sourceMappingURL=.*$/gm, "");
   return {
     name: "peerdash-chart-runtime",
     resolveId: (id) => (id === RUNTIME ? `\0${RUNTIME}` : null),
@@ -35,8 +37,26 @@ function chartRuntime(): Plugin {
   };
 }
 
+const MAP_RUNTIME = "virtual:map-runtime";
+
+/**
+ * MapLibre GL JS (script and CSS) as text, for the map iframes. Like the
+ * chart runtime, it is a lazy chunk: the app loads it only when a dashboard
+ * has a map.
+ */
+function mapRuntime(): Plugin {
+  return {
+    name: "peerdash-map-runtime",
+    resolveId: (id) => (id === MAP_RUNTIME ? `\0${MAP_RUNTIME}` : null),
+    load(id) {
+      if (id !== `\0${MAP_RUNTIME}`) return null;
+      return `export const js = ${JSON.stringify(file("maplibre-gl/dist/maplibre-gl.js"))};\nexport const css = ${JSON.stringify(file("maplibre-gl/dist/maplibre-gl.css"))};`;
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), wasm(), chartRuntime()],
+  plugins: [react(), wasm(), chartRuntime(), mapRuntime()],
   // Relative paths, so the build works under any GitHub Pages path.
   base: "./",
   // loro-crdt's wasm module uses top-level await, supported by all current browsers.

@@ -9,6 +9,7 @@
 // Updates can arrive in any order or twice; Loro handles both.
 
 import type { CanvasDoc } from "./doc";
+import { sanitiseMapView, type MapViewPresence } from "./map";
 
 // Type aliases (not interfaces) so they count as JSON for the transport.
 export type Hello = {
@@ -40,6 +41,11 @@ export type Presence = {
    * presence as before.
    */
   visibleIds?: string[];
+  /**
+   * On a map: the extent of this peer's background map. "Here" is a place on
+   * Earth. Optional; old peers ignore it.
+   */
+  mapView?: MapViewPresence;
   /** Short text, e.g. "editing Revenue chart". */
   activity: string | null;
   /** widgetId → feedback, only for widgets this peer renders. */
@@ -187,7 +193,7 @@ export class SyncSession {
 }
 
 // Presence comes from other peers: keep only the fields we know, with sane types.
-// A missing `visibleIds` is set to undefined, so it replaces a list from an earlier presence.
+// A missing `visibleIds` or `mapView` is set to undefined, so it replaces a list from an earlier presence.
 function sanitisePresence(p: Partial<Presence>): Presence {
   return {
     name: typeof p.name === "string" ? p.name.slice(0, 80) : "",
@@ -195,6 +201,7 @@ function sanitisePresence(p: Partial<Presence>): Presence {
     selectedIds: Array.isArray(p.selectedIds) ? p.selectedIds.filter((s) => typeof s === "string").slice(0, 500) : [],
     viewport: p.viewport && typeof p.viewport === "object" ? p.viewport : null,
     visibleIds: Array.isArray(p.visibleIds) ? p.visibleIds.filter((s) => typeof s === "string").slice(0, 500) : undefined,
+    mapView: sanitiseMapView(p.mapView),
     activity: typeof p.activity === "string" ? p.activity.slice(0, 200) : null,
     feedback: p.feedback && typeof p.feedback === "object" ? p.feedback : {},
   };

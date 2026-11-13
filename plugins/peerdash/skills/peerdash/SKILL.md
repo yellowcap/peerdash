@@ -14,7 +14,8 @@ change it, and every change shows in the user's browser at once.
 - **New canvas:** call `new_dashboard` with a title. Give the user the link
   and ask them to open it. Then add widgets. For a report or a story, add
   `layout: "page"` (see "Page layout"). For a dashboard of KPIs, charts and
-  tables, add `layout: "grid"` (see "Grid layout").
+  tables, add `layout: "grid"` (see "Grid layout"). For places on Earth,
+  add `layout: "map"` (see "Map layout").
 - **Existing canvas:** the user copies the link from the **Share** panel in
   the browser. Call `join` with it. If it says no peer sent the canvas yet,
   ask the user to keep the canvas open, then try again.
@@ -28,8 +29,9 @@ change it, and every change shows in the user's browser at once.
    left to right.
 2. "This", "that chart", "the selected one": use the person's
    `selected_widget_ids`.
-3. "Here", "in my view": use their `viewport` on a canvas, and their
-   `visible_widget_ids` on a page or a grid. The default placement (`auto`) already
+3. "Here", "in my view": use their `viewport` on a canvas, their
+   `visible_widget_ids` on a page or a grid, and their `map_view` (extent,
+   centre and zoom) on a map. The default placement (`auto`) already
    puts new widgets next to the selection or in the view.
 4. Call `get_widget` only for widgets whose full content you need.
 5. Each tool result ends with `changes_since_your_last_look`. Read it: people
@@ -55,6 +57,8 @@ shape of each type.
   (the spec can have at most 100,000 characters).
 - `table`: `{"columns": ["Name", "Count"], "rows": [["A", 3], ["B", 5]]}`.
   People sort it by column in the browser. At most 1000 rows.
+- `map`: `{"view": {"center": [13.4, 52.5], "zoom": 10}, "layers": [...]}`.
+  A MapLibre map. See "Map layout".
 
 Text widgets take `content`:
 
@@ -145,6 +149,47 @@ browser packs the tiles, so they do not overlap. `get_outline` gives
 - **No headings in a grid.** Give each tile a short `title`. Headings belong
   on pages. If a page changes to a grid, the outline lists its headings in
   `not_shown`. They are not deleted.
+
+## Map layout
+
+A map dashboard has one background map that fills the screen. Other widgets
+go into slots: the side `panel` (in order, as on a page), an `overlay` in a
+corner of the map, or a `marker`: a small card at a longitude and latitude.
+
+- **Map or other layouts.** Use a map when the data is about places: sites,
+  regions, routes, satellite data. Use a grid or a page for the rest.
+- **Start with the map.** Create a `map` widget first. The first map in the
+  order is the background map. Other maps show as small maps in their slot.
+- **Map content:**
+  - `view`: `{"center": [lng, lat], "zoom": 10}` or `{"bbox": [w, s, e, n]}`.
+  - `basemap`: `"default"` (OpenFreeMap, no key), `"none"`, or the https URL
+    of a MapLibre style.
+  - `layers`: `geojson` with inline `data` (at most 5000 features),
+    `raster` with `tiles` URL templates (`{z}/{x}/{y}`), or `vector` with
+    `tiles`, `sourceLayer` and `geometry` (`fill`, `line` or `circle`).
+    `style` is `{"color", "opacity", "radius", "width"}`.
+- **Network:** every style and tile URL must be https, and its origin must
+  be in `allow`. The default basemap adds `https://tiles.openfreemap.org`.
+  Core refuses other origins.
+- **Small changes:** `update_widget({data: {"view": {...}}})` moves the map.
+  Change one layer by its id: `{"data": {"layers": {"sites": {...}}}}`.
+  Remove it with `{"layers": {"sites": null}}`.
+- **Place widgets** with `create_widget`:
+  - `slot: "panel"` (default) and `placement` as on a page;
+  - `slot: "overlay"` and `corner` (`top-left`, `top-right`,
+    `bottom-left`, `bottom-right`) for a legend or a KPI;
+  - `placement: "at:<lng>,<lat>"` for a marker. Keep marker cards short: a
+    note or a metric.
+  Use `move_in_layout` to change the slot, the corner or the place.
+- **Shared view and time:** `set_context({bbox, datetime})` sets the extent
+  and the time that the dashboard shares. All maps in the map layout go to
+  the extent. Widgets with `linked: true` follow both:
+  - a linked `html` widget reads `peerdash.context.get()` and
+    `peerdash.context.on((c) => …)`, with `c.bbox` and `c.datetime`;
+  - a linked `chart` gets the Vega-Lite params `context_bbox` and
+    `context_datetime`, for example in a `filter`.
+  People change the shared view with "Share my view" or "Sync" in the
+  browser. `get_outline` gives `context`.
 
 ## Comments
 

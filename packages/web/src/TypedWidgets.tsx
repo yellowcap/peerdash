@@ -5,6 +5,8 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   readTyped,
+  type MapContent,
+  type MapContext,
   type Cell,
   type ChartContent,
   type HeadingContent,
@@ -13,9 +15,10 @@ import {
   type TypedWidgetType,
   type Widget,
 } from "@peerdash/core";
-import { chartSrcdoc, fitSpec } from "./chart";
+import { chartSrcdoc, fitSpec, withContext } from "./chart";
 import { frameFeedback } from "./frame";
-import { useCanvas } from "./hooks";
+import { MapFrame } from "./MapFrame";
+import { useCanvas, useDark, useMapContext } from "./hooks";
 
 /** Where a widget renders. On a page it is as tall as its content; on a canvas and in a grid it fills its box. */
 export type Where = "canvas" | "page" | "grid";
@@ -27,11 +30,14 @@ export const KIND_LABEL: Record<Widget["type"], string> = {
   metric: "Metric",
   chart: "Chart",
   table: "Table",
+  map: "Map",
 };
 
 /** The body of a typed widget. */
 export function TypedBody({ widget: w, where }: { widget: Widget & { type: TypedWidgetType }; where: Where }) {
-  const r = useMemo(() => readTyped(w.type, w.content), [w.type, w.content]);
+  const allowKey = w.allow.join(" ");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const r = useMemo(() => readTyped(w.type, w.content, w.allow), [w.type, w.content, allowKey]);
   if ("error" in r) return <div className="typed-error">This {KIND_LABEL[w.type].toLowerCase()} has content that is not valid: {r.error}</div>;
   switch (w.type) {
     case "heading":
@@ -41,8 +47,21 @@ export function TypedBody({ widget: w, where }: { widget: Widget & { type: Typed
     case "table":
       return <TableView data={r.data as TableContent} where={where} />;
     case "chart":
-      return <ChartView id={w.id} spec={r.data as ChartContent} where={where} fallbackHeight={w.h} />;
+      return <ChartView id={w.id} spec={r.data as ChartContent} where={where} fallbackHeight={w.h} linked={w.linked} />;
+    case "map":
+      return <MapWidgetView widget={w} data={r.data as MapContent} where={where} />;
   }
+}
+
+/** A map widget. A linked map follows the shared extent. */
+function MapWidgetView({ widget: w, data, where }: { widget: Widget; data: MapContent; where: Where }) {
+  const { doc } = useCanvas();
+  const ctx = useMapContext(doc);
+  return (
+    <div className={`map-widget map-${where}`} style={where === "page" ? { height: Math.min(Math.max(w.h, 240), 640) } : undefined}>
+      <MapFrame id={w.id} content={data} allow={w.allow} follow={w.linked ? (ctx.bbox ?? null) : null} />
+    </div>
+  );
 }
 
 /** Heading. Double-click to edit the text in place. */
@@ -174,24 +193,16 @@ function TableView({ data: t, where }: { data: TableContent; where: Where }) {
 const MIN_CHART = 60;
 const MAX_CHART = 1600;
 
-function useDark(): boolean {
-  return useSyncExternalStore(
-    (cb) => {
-      const q = matchMedia("(prefers-color-scheme: dark)");
-      q.addEventListener("change", cb);
-      return () => q.removeEventListener("change", cb);
-    },
-    () => matchMedia("(prefers-color-scheme: dark)").matches,
-  );
-}
-
 /** A chart in a sandboxed iframe; see chart.ts. */
-function ChartView({ id, spec, where, fallbackHeight }: { id: string; spec: ChartContent; where: Where; fallbackHeight: number }) {
+function ChartView({ id, spec, where, fallbackHeight, linked }: { id: string; spec: ChartContent; where: Where; fallbackHeight: number; linked: boolean }) {
+  const { doc } = useCanvas();
   const ref = useRef<HTMLIFrameElement>(null);
   const [srcdoc, setSrcdoc] = useState<string | null>(null);
   const dark = useDark();
   const fill = where !== "page";
-  const message = useMemo(() => ({ __peerdash: true, type: "chart", spec: fitSpec(spec, fill), fill, dark }), [spec, fill, dark]);
+  const ctx = useMapContext(doc);
+  const shared: MapContext | null = linked ? ctx : null;
+  const message = useMemo(() => ({ __peerdash: true, type: "chart", spec: withContext(fitSpec(spec, fill), shared), fill, dark }), [spec, fill, dark, shared]);
   const reported = useSyncExternalStore(frameFeedback.subscribe, () => frameFeedback.contentHeight(id));
 
   useEffect(() => {

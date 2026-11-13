@@ -16,6 +16,8 @@
 // The renderer is not on the network either: the iframe gets it inline, from
 // a lazily loaded chunk of the app.
 
+import type { MapContext } from "@peerdash/core";
+
 const CSP = [
   "default-src 'none'",
   "script-src 'unsafe-inline'",
@@ -72,6 +74,19 @@ export function chartSrcdoc(): Promise<string> {
     return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${CSP}"><style>${STYLE}</style></head><body><div id="chart"></div><script>${safe(code)}</script><script>${BOOT}</script></body></html>`;
   });
   return srcdoc;
+}
+
+/**
+ * A linked chart gets the shared map context as Vega-Lite params:
+ * `context_bbox` ([west, south, east, north] or null) and `context_datetime`
+ * (text or null). A spec uses them in expressions, for example
+ * `{"filter": "context_bbox == null || datum.lon >= context_bbox[0]"}`.
+ * Params of the spec with these names are replaced.
+ */
+export function withContext(spec: Record<string, unknown>, ctx: MapContext | null): Record<string, unknown> {
+  if (!ctx) return spec;
+  const own = Array.isArray(spec.params) ? (spec.params as { name?: unknown }[]).filter((p) => p?.name !== "context_bbox" && p?.name !== "context_datetime") : [];
+  return { ...spec, params: [...own, { name: "context_bbox", value: ctx.bbox ?? null }, { name: "context_datetime", value: ctx.datetime ?? null }] };
 }
 
 /**

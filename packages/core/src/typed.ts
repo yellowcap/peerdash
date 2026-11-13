@@ -1,12 +1,14 @@
-// Typed widgets: `heading`, `metric`, `chart` and `table`. Their content is
-// JSON data, not code. The app renders it.
+// Typed widgets: `heading`, `metric`, `chart`, `table` and `map`. Their
+// content is JSON data, not code. The app renders it. The map rules are in map.ts.
 //
 // The rules are here, in core, so the browser and the agent peer obey the same
 // rules. `cleanContent` checks a value and returns the JSON text to store.
 // `readTyped` reads stored text and never throws: content from old peers or
 // other versions can be anything.
 
-export const TYPED_WIDGETS = ["heading", "metric", "chart", "table"] as const;
+import { cleanMap, keyedLayers, MAP_SHAPE, summariseMap, type MapContent } from "./map";
+
+export const TYPED_WIDGETS = ["heading", "metric", "chart", "table", "map"] as const;
 export type TypedWidgetType = (typeof TYPED_WIDGETS)[number];
 
 export type Cell = string | number | boolean | null;
@@ -43,6 +45,7 @@ export interface TypedContent {
   metric: MetricContent;
   chart: ChartContent;
   table: TableContent;
+  map: MapContent;
 }
 
 export const TYPED_LIMITS = {
@@ -64,9 +67,10 @@ export function isTypedWidget(type: unknown): type is TypedWidgetType {
 
 /**
  * Check typed content and return the JSON text to store. `value` is the data,
- * or JSON text. Throws an error that says what is wrong.
+ * or JSON text. `allow` is the widget's allow list: a map may load only from
+ * these origins. Throws an error that says what is wrong.
  */
-export function cleanContent(type: TypedWidgetType, value: unknown): string {
+export function cleanContent(type: TypedWidgetType, value: unknown, allow: readonly string[] = []): string {
   let data = value;
   if (typeof value === "string") {
     try {
@@ -76,13 +80,13 @@ export function cleanContent(type: TypedWidgetType, value: unknown): string {
     }
   }
   if (!isPlainObject(data)) throw new Error(`The content of a ${type} widget must be a JSON object. ${SHAPES[type]}`);
-  return JSON.stringify(CLEAN[type](data));
+  return JSON.stringify(CLEAN[type](data, allow));
 }
 
 /** Read stored typed content. Returns an error message instead of throwing. */
-export function readTyped<T extends TypedWidgetType>(type: T, content: string): { data: TypedContent[T] } | { error: string } {
+export function readTyped<T extends TypedWidgetType>(type: T, content: string, allow: readonly string[] = []): { data: TypedContent[T] } | { error: string } {
   try {
-    return { data: JSON.parse(cleanContent(type, content)) as TypedContent[T] };
+    return { data: JSON.parse(cleanContent(type, content, allow)) as TypedContent[T] };
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }
@@ -92,10 +96,16 @@ export function readTyped<T extends TypedWidgetType>(type: T, content: string): 
  * Apply a JSON merge patch (RFC 7386) to typed content: objects merge, `null`
  * removes a key, other values (arrays too) replace. Returns the JSON text to store.
  */
-export function patchContent(type: TypedWidgetType, content: string, patch: unknown): string {
-  const current = readTyped(type, content);
+export function patchContent(type: TypedWidgetType, content: string, patch: unknown, allow: readonly string[] = []): string {
+  const current = readTyped(type, content, allow);
   if ("error" in current) throw new Error(`The current content is not valid, so it cannot be patched. Send the full content. (${current.error})`);
-  return cleanContent(type, mergePatch(current.data, patch));
+  return cleanContent(type, patchedValue(type, current.data, patch), allow);
+}
+
+/** The content after a merge patch, before it is checked. A map patch can address layers by id; see `keyedLayers`. */
+export function patchedValue(type: TypedWidgetType, current: unknown, patch: unknown): unknown {
+  const p = type === "map" && isPlainObject(patch) ? keyedLayers(current as MapContent, patch, mergePatch) : patch;
+  return mergePatch(current, p);
 }
 
 export function mergePatch(target: unknown, patch: unknown): unknown {
@@ -116,9 +126,10 @@ export const SHAPES: Record<TypedWidgetType, string> = {
   chart:
     'Shape: a Vega-Lite spec with inline data, e.g. {"mark": "bar", "data": {"values": [{"a": "x", "b": 3}]}, "encoding": {"x": {"field": "a", "type": "nominal"}, "y": {"field": "b", "type": "quantitative"}}}. No URLs: no data.url, no images, no links.',
   table: 'Shape: {"columns": ["Name", "Count"], "rows": [["A", 3], ["B", 5]]}. A row can also be an object with the column names as keys.',
+  map: MAP_SHAPE,
 };
 
-const CLEAN: { [T in TypedWidgetType]: (d: Record<string, unknown>) => TypedContent[T] } = {
+const CLEAN: { [T in TypedWidgetType]: (d: Record<string, unknown>, allow: readonly string[]) => TypedContent[T] } = {
   heading(d) {
     const text = shortText(d.text, "Heading text", TYPED_LIMITS.headingText, true);
     const level = d.level === undefined ? 2 : d.level;
@@ -170,6 +181,8 @@ const CLEAN: { [T in TypedWidgetType]: (d: Record<string, unknown>) => TypedCont
     });
     return { columns, rows };
   },
+
+  map: (d, allow) => cleanMap(d, allow),
 };
 
 function cell(v: unknown, row: number): Cell {
@@ -260,8 +273,8 @@ function hasMark(d: Record<string, unknown>): boolean {
 // Summaries ------------------------------------------------------------------
 
 /** One short readable line for typed content. */
-export function summariseTyped(type: TypedWidgetType, content: string): string {
-  const r = readTyped(type, content);
+export function summariseTyped(type: TypedWidgetType, content: string, allow: readonly string[] = []): string {
+  const r = readTyped(type, content, allow);
   if ("error" in r) return `(not valid: ${r.error})`;
   switch (type) {
     case "heading": {
@@ -287,6 +300,8 @@ export function summariseTyped(type: TypedWidgetType, content: string): string {
       const cols = t.columns.length > 6 ? `${t.columns.slice(0, 6).join(", ")}, …` : t.columns.join(", ");
       return `table, ${t.columns.length} columns (${cols}), ${t.rows.length} rows`;
     }
+    case "map":
+      return summariseMap(r.data as MapContent);
   }
 }
 
@@ -315,4 +330,5 @@ export const STARTER_CONTENT: Record<TypedWidgetType, string> = {
     encoding: { x: { field: "category", type: "nominal" }, y: { field: "amount", type: "quantitative" } },
   }),
   table: JSON.stringify({ columns: ["Name", "Value"], rows: [["A", 1], ["B", 2]] }),
+  map: JSON.stringify({ view: { center: [10, 50], zoom: 3 }, basemap: "default", layers: [] }),
 };

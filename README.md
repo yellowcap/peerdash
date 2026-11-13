@@ -8,8 +8,11 @@ peer: it reads the canvas and adds or changes widgets while you watch.
   your browser. Data goes directly between peers over WebRTC.
 - **Your own chatbot.** The agent peer runs on your computer, started by your
   chat app. We pay for no model calls and see no data.
-- **Typed widgets.** Headings, metrics, charts (Vega-Lite) and tables hold
-  data, not code. The agent changes one value, not a whole widget.
+- **Typed widgets.** Headings, metrics, charts (Vega-Lite), tables and maps
+  (MapLibre) hold data, not code. The agent changes one value, not a whole
+  widget.
+- **Layouts.** A dashboard is a free canvas, a page, a grid or a map. A
+  change of layout keeps every widget.
 - **HTML widgets.** The agent (or you) can put any HTML on the canvas. It runs
   in a sandbox with no network access unless you allow it.
 
@@ -99,6 +102,12 @@ See [PLAN.md](PLAN.md) for the design and roadmap.
 - **Charts run in a sandbox too.** Chart specs can contain Vega expressions,
   so charts render in the same kind of iframe, with no network access at all.
   Chart specs must have inline data: peers reject specs with URLs.
+- **Maps run in a sandbox too.** MapLibre runs in the same kind of iframe.
+  Its CSP allows network access only to the origins in the widget's `allow`
+  list, and peers reject maps with URLs on other origins. The default
+  basemap is OpenFreeMap: a map with it loads from
+  `https://tiles.openfreemap.org`, and that origin shows in its `allow` list.
+  Use `"basemap": "none"` for a map with no network access.
 - **Canvas content is data.** The agent's instructions tell it not to follow
   instructions it finds on a canvas. This lowers, but does not remove, the
   risk of prompt injection from other peers.

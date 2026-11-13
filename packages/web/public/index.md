@@ -28,14 +28,20 @@ the steps in "For agents" below.
   - `heading`, `metric`, `chart` (Vega-Lite), `table`: typed widgets. Their
     content is JSON data. The app renders it. A chart has inline data only
     and no network access.
+  - `map`: a MapLibre map with a view, a basemap and layers (inline GeoJSON,
+    or raster and vector tiles). It renders in a sandboxed iframe. It loads
+    only from the origins in its `allow` list.
   - `html`: an HTML fragment or document in a sandboxed iframe. It has no
     network access, except to the origins that the widget allows.
-- A dashboard has a layout: `canvas` (a free 2D board) or `page` (one reading
-  column of blocks in order). The user can change the layout. No content is
-  lost.
+- A dashboard has a layout: `canvas` (a free 2D board), `page` (one reading
+  column of blocks in order), `grid` (a 12-column dashboard of tiles) or
+  `map` (a background map with a side panel, overlays and markers). The user
+  can change the layout. No content is lost.
+- A dashboard has a shared map context: an extent (`bbox`) and a time
+  (`datetime`). Widgets with `linked: true` follow it.
 - Browsers send presence to all peers: name, selected widgets, view, and
-  errors from HTML widgets. The view is the viewport on a canvas, and the
-  blocks in view on a page. The agent uses the selection for "this", the view
+  errors from HTML widgets. The view is the viewport on a canvas, the
+  blocks in view on a page or a grid, and the map extent on a map. The agent uses the selection for "this", the view
   for "here", and the errors to fix broken widgets.
 
 ## Share links
@@ -114,7 +120,7 @@ To continue on a canvas from an earlier session, call `list_dashboards`.
 - Call `get_widget` only for widgets whose full content you need.
 - Each result has `changes_since_your_last_look`. Read it: people can edit,
   move or delete widgets at any time.
-- Use a typed widget (`heading`, `metric`, `chart`, `table`) when one fits.
+- Use a typed widget (`heading`, `metric`, `chart`, `table`, `map`) when one fits.
   Give its content as `data`, a JSON object. To change it, send only the
   changed keys in `update_widget({data})`.
 - For `html` widgets: put data in `state`, not in the code. Read it with
@@ -124,7 +130,11 @@ To continue on a canvas from an earlier session, call `list_dashboards`.
   fix the errors that it shows.
 - On a page, `create_widget` takes `placement` (`auto`, `start`, `end`,
   `after:<id>`, `before:<id>`) and `width` (`text`, `wide`, `full`).
-  `move_in_page` changes the order or the width of a block.
+  `move_in_layout` changes the order or the width of a block.
+- On a map, the first `map` widget is the background map. `create_widget`
+  takes `slot` (`panel`, `overlay`, `marker`), `corner` for an overlay, and
+  `placement: "at:<lng>,<lat>"` for a marker. `set_context` sets the shared
+  extent and time.
 - Other tools: `update_widget`, `move_widgets`, `set_layout`,
   `delete_widgets`, `connect`, `add_comment`, `resolve_comment`,
   `wait_for_change`, `undo`, `leave`.

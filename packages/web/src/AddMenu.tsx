@@ -7,6 +7,7 @@ const ITEMS: { type: WidgetType; label: string; hint: string }[] = [
   { type: "metric", label: "Metric", hint: "One number, with change and trend" },
   { type: "chart", label: "Chart", hint: "Vega-Lite, inline data" },
   { type: "table", label: "Table", hint: "Rows and columns, sortable" },
+  { type: "map", label: "Map", hint: "MapLibre map with GeoJSON and tile layers" },
 ];
 
 /** "+ Note" and a menu with the other widget types. */

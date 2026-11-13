@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { CanvasDoc, type WidgetType } from "./doc";
 import { summarise } from "./layout";
 import { cleanContent, mergePatch, readTyped, STARTER_CONTENT, TYPED_LIMITS, TYPED_WIDGETS } from "./typed";
+import { allowForMap } from "./map";
 
 const bar = {
   mark: "bar",
@@ -96,7 +97,7 @@ describe("content in the document", () => {
   });
   it("rejects an unknown type", () => {
     const doc = CanvasDoc.create("T", "me");
-    expect(() => doc.createWidget({ type: "map" as WidgetType }, "me")).toThrow(/Unknown widget type/);
+    expect(() => doc.createWidget({ type: "image" as WidgetType }, "me")).toThrow(/Unknown widget type/);
   });
   it("stores compact JSON, and checks updates", () => {
     const { doc, id } = docWith("heading", '{ "text": "A" }');
@@ -126,7 +127,7 @@ describe("content in the document", () => {
     expect(() => doc.patchContent(id, { text: "x" }, "me")).toThrow(/Only heading/);
   });
   it("has starter content that is valid for every type", () => {
-    for (const t of TYPED_WIDGETS) expect(() => cleanContent(t, STARTER_CONTENT[t])).not.toThrow();
+    for (const t of TYPED_WIDGETS) expect(() => cleanContent(t, STARTER_CONTENT[t], allowForMap(STARTER_CONTENT[t], []))).not.toThrow();
   });
   it("reads content written without checks (old peers) without throwing", () => {
     const { doc, id } = docWith("metric", { value: 1, label: "x" });

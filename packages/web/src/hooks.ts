@@ -1,5 +1,5 @@
-import { createContext, useContext, useRef, useSyncExternalStore } from "react";
-import type { CanvasDoc, Peer, SyncSession } from "@peerdash/core";
+import { createContext, useContext, useMemo, useRef, useSyncExternalStore } from "react";
+import type { CanvasDoc, MapContext, Peer, SyncSession } from "@peerdash/core";
 
 /** Re-render on every change of the document; returns a counter. */
 export function useDocVersion(doc: CanvasDoc): number {
@@ -37,4 +37,22 @@ export function useCanvas(): CanvasCtx {
   const ctx = useContext(CanvasContext);
   if (!ctx) throw new Error("useCanvas outside CanvasContext");
   return ctx;
+}
+
+export function useDark(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const q = matchMedia("(prefers-color-scheme: dark)");
+      q.addEventListener("change", cb);
+      return () => q.removeEventListener("change", cb);
+    },
+    () => matchMedia("(prefers-color-scheme: dark)").matches,
+  );
+}
+
+/** The shared map context of the dashboard. The object stays the same until the context changes. */
+export function useMapContext(doc: CanvasDoc): MapContext {
+  useDocVersion(doc);
+  const key = JSON.stringify(doc.context());
+  return useMemo(() => JSON.parse(key) as MapContext, [key]);
 }

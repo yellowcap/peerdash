@@ -22,6 +22,7 @@ import { AddMenu } from "./AddMenu";
 import { Board } from "./Board";
 import { PageView } from "./PageView";
 import { GridView } from "./GridView";
+import { MapLayout } from "./MapLayout";
 import { blocksInView } from "./Ordered";
 import { LayoutSelect } from "./LayoutSelect";
 import { Inspector } from "./Inspector";
@@ -156,7 +157,7 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
     const content = isTypedWidget(type) ? STARTER_CONTENT[type] : "";
     const size = DEFAULT_SIZE[type];
     const layout = doc.layout;
-    if (layout === "page" || layout === "grid") {
+    if (layout === "page" || layout === "grid" || layout === "map") {
       const target = orderTarget(doc, layout, "auto", { selectedIds: selected, visibleIds: blocksInView() });
       const nid = doc.createWidget({ type, content, ...freeSpot(doc.widgets(), size.w, size.h), at: { [layout]: target } }, author);
       setSelected([nid]);
@@ -317,6 +318,8 @@ function CanvasView({ id, doc }: { id: string; doc: CanvasDoc }) {
             <PageView selected={selected} onSelect={setSelected} />
           ) : layout === "grid" ? (
             <GridView selected={selected} onSelect={setSelected} />
+          ) : layout === "map" ? (
+            <MapLayout selected={selected} onSelect={setSelected} />
           ) : (
             <Board onSelect={setSelected} />
           )}

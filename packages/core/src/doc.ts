@@ -3,7 +3,7 @@
 // - `meta` (map): id, title, createdAt, schemaVersion, layout
 // - `widgets` (map): widgetId → map { type, title, content, allow, createdBy, state (map), place (map), x, y, w, h, z }
 //   - `place` holds one mergeable map for each layout: `canvas` {x, y, w, h, z},
-//     `page` {order, width}, `grid` {order, span, rows}, `map` {slot, order, lngLat}.
+//     `page` {order, width}, `grid` {order, span, rows}, `map` {slot, order, lngLat, corner}.
 //     Mergeable maps have a fixed id, so peers that make one at the same time
 //     get the same map, and their edits merge.
 //   - The top-level x, y, w, h, z are the schema 1 canvas fields. Schema 2 peers
@@ -11,6 +11,8 @@
 //     write them, so schema 1 peers (old plugin bundles) still show positions.
 // - `edges` (map): edgeId → map { from, to, label }
 // - `comments` (map): commentId → map { widgetId, text, author, createdAt, resolved }
+// - `context` (map): the shared map extent and time, { bbox, datetime }. Both
+//   are optional. Widgets with `linked: true` follow them.
 //
 // Every mutation is a named method that commits exactly one Loro change. The
 // commit message is `{"a": author, "k": action, "v": values}`, so the history
@@ -19,7 +21,8 @@
 
 import { LoroDoc, LoroMap, VersionVector } from "loro-crdt";
 import { compareKeys, compareOrdered, isOrderKey, keysBetween } from "./order";
-import { cleanContent, isTypedWidget, patchContent, TYPED_WIDGETS } from "./typed";
+import { cleanContent, isTypedWidget, mergePatch, patchContent, TYPED_WIDGETS } from "./typed";
+import { allowForMap, cleanBBox, cleanDatetime, type BBox, type MapContext } from "./map";
 
 export const SCHEMA_VERSION = 2;
 
@@ -30,9 +33,11 @@ export const PAGE_WIDTHS = ["text", "wide", "full"] as const;
 export type PageWidth = (typeof PAGE_WIDTHS)[number];
 export const MAP_SLOTS = ["panel", "overlay", "marker"] as const;
 export type MapSlot = (typeof MAP_SLOTS)[number];
+export const MAP_CORNERS = ["top-left", "top-right", "bottom-left", "bottom-right"] as const;
+export type MapCorner = (typeof MAP_CORNERS)[number];
 
 export const WIDGET_TYPES = ["note", "html", ...TYPED_WIDGETS] as const;
-/** `note` and `html` hold text. The typed widgets (`heading`, `metric`, `chart`, `table`) hold JSON; see typed.ts. */
+/** `note` and `html` hold text. The typed widgets (`heading`, `metric`, `chart`, `table`, `map`) hold JSON; see typed.ts. */
 export type WidgetType = (typeof WIDGET_TYPES)[number];
 
 export interface CanvasPlace {
@@ -58,6 +63,8 @@ export interface MapPlace {
   order: string;
   /** [longitude, latitude]. Only a marker has one. */
   lngLat?: [number, number];
+  /** The corner of an overlay. Default "top-right". Kept when the slot changes. */
+  corner?: MapCorner;
 }
 /** The place of a widget in each layout. A missing entry means no place in that layout. */
 export interface Places {
@@ -92,8 +99,10 @@ export interface Widget {
   title: string;
   /** Markdown for `note`, an HTML document or fragment for `html`, JSON for a typed widget. */
   content: string;
-  /** Network origins an `html` widget may load from (empty = none). */
+  /** Network origins an `html` or `map` widget may load from (empty = none). */
   allow: string[];
+  /** The widget follows the dashboard's map context (extent and time). */
+  linked: boolean;
   createdBy: string;
   place: Places;
 }
@@ -124,7 +133,7 @@ export type WidgetInput = Partial<Omit<Widget, "id" | "createdBy" | "place">> & 
   /** A spot in the order of a layout, e.g. `{ page: { after: id } }`. Wins over `place.<layout>.order`. */
   at?: Partial<Record<OrderedLayout, OrderTarget>>;
 };
-export type WidgetPatch = Partial<Pick<Widget, "x" | "y" | "w" | "h" | "z" | "title" | "content" | "allow">>;
+export type WidgetPatch = Partial<Pick<Widget, "x" | "y" | "w" | "h" | "z" | "title" | "content" | "allow" | "linked">>;
 
 /** One entry of the change log. */
 export interface Change {
@@ -143,6 +152,7 @@ export const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   metric: { w: 220, h: 150 },
   chart: { w: 480, h: 320 },
   table: { w: 480, h: 300 },
+  map: { w: 520, h: 380 },
 };
 
 /** The grid size of a new widget, by type. A heading is not in the grid; its size is used only for old data. */
@@ -153,6 +163,7 @@ export const GRID_SIZE: Record<WidgetType, { span: number; rows: number }> = {
   metric: { span: 3, rows: 2 },
   chart: { span: 6, rows: 3 },
   table: { span: 6, rows: 3 },
+  map: { span: 6, rows: 4 },
 };
 
 /**
@@ -164,6 +175,10 @@ export const GRID_SIZE: Record<WidgetType, { span: number; rows: number }> = {
  * Widgets that exist already (for example when a page changes to a grid) stay
  * in the document with all their places. The layout does not show them, and
  * they come back when the layout changes again.
+ *
+ * The map layout hides no type. Its rule is about one widget, not a type: the
+ * first `map` in its order is the background map (see `backgroundMap`). Other
+ * maps show in their slot, as small maps.
  */
 export const HIDDEN_TYPES: Partial<Record<Layout, readonly WidgetType[]>> = { grid: ["heading"] };
 
@@ -176,7 +191,7 @@ function notInLayout(type: WidgetType, layout: Layout): string {
   return `The ${layout} layout has no ${type} widgets.${type === "heading" && layout === "grid" ? " Give each widget a title instead, or use a page for sections." : ""}`;
 }
 
-const WIDGET_FIELDS = ["type", "title", "content", "allow", "createdBy"] as const;
+const WIDGET_FIELDS = ["type", "title", "content", "allow", "createdBy", "linked"] as const;
 const CANVAS_FIELDS = ["x", "y", "w", "h", "z"] as const;
 const ORDERED_LAYOUTS = ["page", "grid", "map"] as const;
 
@@ -188,10 +203,13 @@ export function isWidgetType(v: unknown): v is WidgetType {
   return (WIDGET_TYPES as readonly unknown[]).includes(v);
 }
 
-/** Check content for a widget type. Typed content must be valid JSON for the type; it is stored as compact JSON. */
-export function contentFor(type: WidgetType, content: string): string {
+/**
+ * Check content for a widget type. Typed content must be valid JSON for the
+ * type; it is stored as compact JSON. A map may load only from `allow`.
+ */
+export function contentFor(type: WidgetType, content: string, allow: readonly string[] = []): string {
   if (typeof content !== "string") throw new Error("Content must be text.");
-  return isTypedWidget(type) ? cleanContent(type, content) : content;
+  return isTypedWidget(type) ? cleanContent(type, content, allow) : content;
 }
 
 export function isLayout(v: unknown): v is Layout {
@@ -277,6 +295,31 @@ export class CanvasDoc {
     return this.readingOrder(layout).filter((w) => fitsLayout(w.type, layout));
   }
 
+  /**
+   * The background map of the map layout: the first `map` widget in the map
+   * order. Its slot does not matter. Null when the dashboard has no map.
+   */
+  backgroundMap(): Widget | null {
+    return this.readingOrder("map").find((w) => w.type === "map") ?? null;
+  }
+
+  /** The shared map context. Fields that are missing or not valid are left out. */
+  context(): MapContext {
+    const c = this.loro.getMap("context").toJSON() as Record<string, unknown>;
+    const out: MapContext = {};
+    try {
+      if (c.bbox !== undefined) out.bbox = cleanBBox(c.bbox);
+    } catch {
+      // From a newer or broken peer: ignore.
+    }
+    try {
+      if (c.datetime !== undefined) out.datetime = cleanDatetime(c.datetime);
+    } catch {
+      // As above.
+    }
+    return out;
+  }
+
   widget(id: string): Widget | null {
     const m = this.widgetMap(id);
     return m ? toWidget(id, m.toJSON()) : null;
@@ -324,7 +367,9 @@ export class CanvasDoc {
   createWidget(input: WidgetInput, author: string): string {
     if (!isWidgetType(input.type)) throw new Error(`Unknown widget type ${String(input.type)}. Use one of: ${WIDGET_TYPES.join(", ")}.`);
     if (!fitsLayout(input.type, this.layout)) throw new Error(notInLayout(input.type, this.layout));
-    const content = contentFor(input.type, input.content ?? "");
+    // A map with the default basemap needs its origin in allow; add it, so the list shows it.
+    const allow = input.type === "map" ? allowForMap(input.content ?? "", input.allow ?? []) : (input.allow ?? []);
+    const content = contentFor(input.type, input.content ?? "", allow);
     const id = newId();
     const size = DEFAULT_SIZE[input.type];
     const top = this.widgets().reduce((z, w) => Math.max(z, w.z), 0);
@@ -350,8 +395,9 @@ export class CanvasDoc {
       type: input.type,
       title: input.title ?? "",
       content,
-      allow: input.allow ?? [],
+      allow,
       createdBy: author,
+      linked: input.linked === true,
     };
     for (const k of WIDGET_FIELDS) m.set(k, values[k]);
     m.setContainer("state", new LoroMap());
@@ -366,8 +412,21 @@ export class CanvasDoc {
     const m = this.requireWidget(id);
     const fields = Object.entries(patch).filter(([, v]) => v !== undefined);
     if (fields.length === 0) return;
-    if (patch.content !== undefined) {
-      const type = m.get("type");
+    if (patch.linked !== undefined && typeof patch.linked !== "boolean") throw new Error("linked must be true or false.");
+    const type = m.get("type");
+    if (type === "map" && (patch.content !== undefined || patch.allow !== undefined)) {
+      // Check the map content against the allow list that it will have.
+      let allow = patch.allow ?? toWidget(id, m.toJSON()).allow;
+      if (patch.content !== undefined) allow = allowForMap(patch.content, allow);
+      const content = contentFor("map", patch.content ?? String(m.get("content") ?? ""), allow);
+      const set = (k: string, v: string | string[]) => {
+        const i = fields.findIndex(([f]) => f === k);
+        if (i >= 0) fields[i] = [k, v];
+        else fields.push([k, v]);
+      };
+      if (patch.content !== undefined) set("content", content);
+      if (allow.join("\n") !== toWidget(id, m.toJSON()).allow.join("\n")) set("allow", allow);
+    } else if (patch.content !== undefined) {
       fields.splice(fields.findIndex(([k]) => k === "content"), 1, ["content", isWidgetType(type) ? contentFor(type, patch.content) : patch.content]);
     }
     const canvas: Partial<CanvasPlace> = {};
@@ -384,14 +443,27 @@ export class CanvasDoc {
   /**
    * Change part of the content of a typed widget with a JSON merge patch:
    * objects merge, `null` removes a key, arrays and other values replace.
-   * The result must be valid; else this throws and writes nothing.
+   * The result must be valid; else this throws and writes nothing. A map
+   * can get a new allow list in the same change (`newAllow`).
    */
-  patchContent(id: string, patch: Record<string, unknown>, author: string) {
+  patchContent(id: string, patch: Record<string, unknown>, author: string, newAllow?: string[]) {
     const m = this.requireWidget(id);
     const type = m.get("type");
-    if (!isTypedWidget(type)) throw new Error(`Only heading, metric, chart and table widgets take a content patch. This widget is ${String(type)}.`);
-    m.set("content", patchContent(type, String(m.get("content") ?? ""), patch));
-    this.commit(author, "edit", { id, fields: ["content"], keys: Object.keys(patch) });
+    if (!isTypedWidget(type)) throw new Error(`Only heading, metric, chart, table and map widgets take a content patch. This widget is ${String(type)}.`);
+    if (newAllow && type !== "map") throw new Error("Only a map takes an allow list with a content patch.");
+    const before = toWidget(id, m.toJSON()).allow;
+    const current = String(m.get("content") ?? "");
+    let allow = before;
+    let next: string;
+    if (type === "map") {
+      // A patch can switch to the default basemap: then its origin joins allow.
+      allow = allowForMap(patchedMap(current, patch), newAllow ?? before);
+      next = patchContent(type, current, patch, allow);
+    } else next = patchContent(type, current, patch);
+    const allowChanged = allow.join("\n") !== before.join("\n");
+    m.set("content", next);
+    if (allowChanged) m.set("allow", allow);
+    this.commit(author, "edit", { id, fields: allowChanged ? ["content", "allow"] : ["content"], keys: Object.keys(patch) });
   }
 
   /** Move or resize widgets on the canvas. */
@@ -451,6 +523,26 @@ export class CanvasDoc {
     const edges = this.loro.getMap("edges");
     for (const id of ids) edges.delete(id);
     this.commit(author, "disconnect", { ids });
+  }
+
+  /**
+   * Change the shared map context in one commit. `null` removes a field;
+   * fields left out stay. A bad value throws and writes nothing.
+   */
+  setContext(patch: { bbox?: BBox | null; datetime?: string | null }, author: string) {
+    const ctx = this.loro.getMap("context");
+    const writes: [string, unknown][] = [];
+    if (patch.bbox !== undefined) writes.push(["bbox", patch.bbox === null ? null : cleanBBox(patch.bbox)]);
+    if (patch.datetime !== undefined) writes.push(["datetime", patch.datetime === null || patch.datetime === "" ? null : cleanDatetime(patch.datetime)]);
+    if (writes.length === 0) return;
+    const now = this.context() as Record<string, unknown>;
+    const changed = writes.filter(([k, v]) => JSON.stringify(now[k] ?? null) !== JSON.stringify(v));
+    if (changed.length === 0) return;
+    for (const [k, v] of changed) {
+      if (v === null) ctx.delete(k);
+      else ctx.set(k, v as never);
+    }
+    this.commit(author, "context", Object.fromEntries(changed));
   }
 
   /** Shared state of an html widget, written through the iframe bridge. */
@@ -712,6 +804,10 @@ function checkPlace(layout: OrderedLayout, patch: Record<string, unknown>, curre
       if (!(MAP_SLOTS as readonly unknown[]).includes(patch.slot)) throw new Error(`Map slot must be one of: ${MAP_SLOTS.join(", ")}.`);
       out.slot = patch.slot;
     }
+    if (has("corner")) {
+      if (!(MAP_CORNERS as readonly unknown[]).includes(patch.corner)) throw new Error(`Map corner must be one of: ${MAP_CORNERS.join(", ")}.`);
+      out.corner = patch.corner;
+    }
     const slot = (out.slot ?? current?.slot ?? "panel") as MapSlot;
     let lngLat = current?.lngLat;
     if (patch.lngLat === null) lngLat = undefined;
@@ -752,6 +848,7 @@ function readPlaces(w: Record<string, unknown>): Places {
   if (map && isOrderKey(map.order)) {
     const slot = (MAP_SLOTS as readonly unknown[]).includes(map.slot) ? (map.slot as MapSlot) : "panel";
     out.map = { slot, order: map.order };
+    if ((MAP_CORNERS as readonly unknown[]).includes(map.corner)) out.map.corner = map.corner as MapCorner;
     const ll = map.lngLat;
     if (slot === "marker" && Array.isArray(ll) && finite(ll[0]) !== undefined && finite(ll[1]) !== undefined) {
       out.map.lngLat = [ll[0] as number, ll[1] as number];
@@ -776,6 +873,7 @@ function toWidget(id: string, w: Record<string, unknown>): Widget {
     content: String(w.content ?? ""),
     allow: Array.isArray(w.allow) ? w.allow.map(String) : [],
     createdBy: String(w.createdBy ?? ""),
+    linked: w.linked === true,
     place,
   };
 }
@@ -786,5 +884,14 @@ function parseMessage(message: string | undefined): Omit<Change, "at" | "peer"> 
     return { author: String(m.a ?? ""), action: String(m.k ?? ""), values: m.v ?? {} };
   } catch {
     return { author: "", action: message ?? "", values: {} };
+  }
+}
+
+/** The map content after a patch, before checks; only used to find the basemap. */
+function patchedMap(current: string, patch: Record<string, unknown>): unknown {
+  try {
+    return mergePatch(JSON.parse(current), patch);
+  } catch {
+    return patch;
   }
 }

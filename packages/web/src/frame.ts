@@ -6,15 +6,13 @@
 // - a CSP <meta> at the top of the document blocks all network access, except
 //   for the origins the user allowed for this widget;
 // - a small bridge script (`window.peerdash`) gives shared state and reports
-//   errors, console output and size back to the host over postMessage.
+//   errors, console output and size back to the host over postMessage;
+// - `peerdash.context` gives the shared map context (extent and time) to a
+//   linked widget. It is read-only: the widget cannot change the dashboard.
 
-import type { WidgetFeedback } from "@peerdash/core";
+import { validOrigins, type WidgetFeedback } from "@peerdash/core";
 
-const ORIGIN = /^https:\/\/[a-z0-9.-]+(:\d+)?$/i;
-
-export function validOrigins(allow: string[]): string[] {
-  return allow.map((o) => o.trim().replace(/\/+$/, "")).filter((o) => ORIGIN.test(o));
-}
+export { validOrigins };
 
 function csp(allow: string[]): string {
   const extra = validOrigins(allow).join(" ");
@@ -39,7 +37,13 @@ const BRIDGE = `(() => {
   let state = {};
   const subs = new Set();
   const notify = () => subs.forEach((f) => { try { f(state); } catch (e) { console.error(e); } });
+  let context = {};
+  const ctxSubs = new Set();
   window.peerdash = {
+    context: {
+      get: () => JSON.parse(JSON.stringify(context)),
+      on: (f) => { ctxSubs.add(f); return () => ctxSubs.delete(f); },
+    },
     state: {
       get: (k) => (k === undefined ? Object.assign({}, state) : state[k]),
       set: (k, v) => { state = Object.assign({}, state, { [k]: v }); send({ type: "state:set", key: k, value: v }); notify(); },
@@ -51,6 +55,7 @@ const BRIDGE = `(() => {
   addEventListener("message", (e) => {
     if (e.source !== parent || !e.data || !e.data.__peerdash) return;
     if (e.data.type === "state") { state = e.data.state || {}; notify(); }
+    if (e.data.type === "context") { context = e.data.context || {}; ctxSubs.forEach((f) => { try { f(JSON.parse(JSON.stringify(context))); } catch (err) { console.error(err); } }); }
     if (e.data.type === "ping") { send({ type: "ready" }); report(); }
   });
   const fmt = (args) => args.map((x) => { try { return typeof x === "string" ? x : JSON.stringify(x); } catch (_) { return String(x); } }).join(" ");

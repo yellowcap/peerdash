@@ -183,7 +183,7 @@ function Cell({ widget: w, index, selected, selectedIds, prev, next, onSelect, o
       </div>
       <div className="widget-body" onDoubleClick={() => w.type === "note" && setEditing(true)}>
         {w.type === "html" ? (
-          <HtmlFrame id={w.id} content={w.content} allow={w.allow} />
+          <HtmlFrame id={w.id} content={w.content} allow={w.allow} linked={w.linked} />
         ) : isTypedWidget(w.type) ? (
           <TypedBody widget={w as Widget & { type: typeof w.type }} where="grid" />
         ) : editing ? (

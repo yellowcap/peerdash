@@ -175,3 +175,24 @@ describe("presence on a page", () => {
     expect(sa.state.peers[0].visibleIds).toEqual(["ok"]);
   });
 });
+
+describe("presence on a map", () => {
+  it("carries a map view, cleans it, and drops a bad one", async () => {
+    const hub = new Hub();
+    const sa = new SyncSession(CanvasDoc.create("M", "Ann", undefined, "map"), hub.connect("a"), emptyPresence("Ann", "human"));
+    const t = hub.connect("b");
+    await tick();
+    const base = emptyPresence("Bob", "human");
+    t.presence.send({ ...base, mapView: { bbox: [-200, 40, 10, 95], center: [5, 50], zoom: 6 } });
+    await tick();
+    // Clamped, not rejected: a wide view can cross the antimeridian or the poles.
+    expect(sa.state.peers[0].mapView).toEqual({ bbox: [-180, 40, 10, 90], center: [5, 50], zoom: 6 });
+    t.presence.send({ ...base, mapView: { bbox: [0, 0, "x", 1], center: [0, 0], zoom: 1 } as never });
+    await tick();
+    expect(sa.state.peers[0].mapView).toBeUndefined();
+    // An old peer sends no map view.
+    t.presence.send(base);
+    await tick();
+    expect(sa.state.peers[0].mapView).toBeUndefined();
+  });
+});

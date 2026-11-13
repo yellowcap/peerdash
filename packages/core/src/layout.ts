@@ -101,7 +101,7 @@ export function pageTarget(doc: CanvasDoc, placement: string | undefined, here: 
 
 /** One line per widget, for agents and logs. */
 export function summarise(w: Widget, max = 120): string {
-  const text = isTypedWidget(w.type) ? summariseTyped(w.type, w.content) : w.type === "html" ? stripTags(w.content) : w.content;
+  const text = isTypedWidget(w.type) ? summariseTyped(w.type, w.content, w.allow) : w.type === "html" ? stripTags(w.content) : w.content;
   const flat = text.replace(/\s+/g, " ").trim();
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }

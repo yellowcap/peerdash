@@ -126,13 +126,13 @@ function Block({ widget: w, selected, selectedIds, prev, next, onSelect, onMove 
 }
 
 /** An html block: as tall as its content, else as tall as on the canvas. */
-function PageFrame({ widget: w }: { widget: Widget }) {
+export function PageFrame({ widget: w }: { widget: Widget }) {
   const reported = useSyncExternalStore(frameFeedback.subscribe, () => frameFeedback.contentHeight(w.id));
   const height = reported > 0 ? Math.min(MAX_FRAME, Math.max(MIN_FRAME, reported)) : w.h;
   return (
     // content-box: the border goes outside, so the iframe gets the full height and needs no scroll bar.
     <div className="block-frame" style={{ height, boxSizing: "content-box" }}>
-      <HtmlFrame id={w.id} content={w.content} allow={w.allow} />
+      <HtmlFrame id={w.id} content={w.content} allow={w.allow} linked={w.linked} />
     </div>
   );
 }

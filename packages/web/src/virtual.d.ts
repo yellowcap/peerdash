@@ -3,3 +3,10 @@ declare module "virtual:chart-runtime" {
   const code: string;
   export default code;
 }
+
+declare module "virtual:map-runtime" {
+  /** MapLibre GL JS as a classic script. See vite.config.ts. */
+  export const js: string;
+  /** The MapLibre GL JS stylesheet. */
+  export const css: string;
+}
